@@ -1,0 +1,56 @@
+{
+  "name": "fip-linter",
+  "displayName": "FIP Language Linter",
+  "description": "Linter extension for FIP (Functional Intuitive Programming language)",
+  "version": "0.0.1",
+  "publisher": "fippli",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Linters"
+  ],
+  "activationEvents": [
+    "onLanguage:fip"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "fip",
+        "extensions": [
+          ".fip"
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "FIP Linter",
+      "properties": {
+        "fipLinter.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable FIP linter"
+        },
+        "fipLinter.path": {
+          "type": "string",
+          "default": "fip-lint",
+          "description": "Path to fip-lint executable"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.74.0",
+    "typescript": "^4.9.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^8.0.0"
+  }
+}
+

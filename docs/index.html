@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fip Language Documentation</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/fippli/css@latest/regular.css"
+    />
+  </head>
+  <body id="top">
+    <main>
+      <section id="section-core" data-doc-section="section-core" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/core.md">
+<h1 id="core-core-functions">Core functions</h1><h2 id="core-log">log!</h2>
+<p><code>log!</code> writes a message to the console. It is impure and therefore requires the <code>!</code> suffix.</p>
+<p><strong>Signature:</strong> <code>log!: (message) -&gt; null</code></p>
+<p><strong>Example</strong></p>
+<pre><code>log!(&quot;hello, world&quot;)
+</code></pre>
+<h2 id="core-trace">trace!</h2>
+<p><code>trace!</code> logs both a message and the inspected value, returning the original value unchanged.
+The output format is <code>(trace) &lt;message&gt;: &lt;value&gt;</code>. Like <code>log!</code>, it is impure.</p>
+<p><strong>Signature:</strong> <code>trace!: (message, value) -&gt; value</code></p>
+<p><strong>Example</strong></p>
+<pre><code>trace!(&quot;name&quot;, &quot;Filip&quot;) // (trace) name: Filip
+</code></pre>
+<pre><code>f: (x) {
+  x
+  trace!(&quot;number&quot;, x)
+  increment
+}
+
+f(1) // logs &quot;(trace) number: 1&quot; and returns 2
+</code></pre>
+<h2 id="core-identity">identity</h2>
+<p>Returns the input exactly as received.</p>
+<p><strong>Signature:</strong> <code>identity: (x) { x }</code></p>
+<p><strong>Example</strong></p>
+<pre><code>identity(&quot;hello&quot;) // &quot;hello&quot;
+</code></pre>
+<h2 id="core-increment">increment</h2>
+<p>Adds one to a numeric argument.</p>
+<p><strong>Signature:</strong> <code>increment: (x) { x + 1 }</code></p>
+<p><strong>Example</strong></p>
+<pre><code>increment(3) // 4
+</code></pre>
+<h2 id="core-decrement">decrement</h2>
+<p>Subtracts one from a numeric argument.</p>
+<p><strong>Signature:</strong> <code>decrement: (x) { x - 1 }</code></p>
+<p><strong>Example</strong></p>
+<pre><code>decrement(3) // 2
+</code></pre>
+<h2 id="core-map">map</h2>
+<p>Applies a function to each item in a list and returns a new list with the transformed values.</p>
+<p><strong>Signature:</strong> <code>map: (fn, list) -&gt; list</code></p>
+<p><code>fn</code> receives a single list item and must return the mapped value.</p>
+<p><strong>Example</strong></p>
+<pre><code>numbers: [1, 2, 3]
+map(increment, numbers) // [2, 3, 4]
+</code></pre>
+<h2 id="core-reduce">reduce</h2>
+<p>Combines a list into a single value by iteratively applying an accumulator function.</p>
+<p><strong>Signature:</strong> <code>reduce: (fn, init, list) -&gt; value</code></p>
+<p><code>fn</code> receives <code>(accumulator, item)</code> and must return the next accumulator value.</p>
+<p><strong>Example</strong></p>
+<pre><code>numbers: [1, 2, 3]
+reduce((acc, n) { acc + n }, 0, numbers) // 6
+</code></pre>
+<h2 id="core-filter">filter</h2>
+<p>Keeps the items in a list that satisfy a predicate function and returns a new list.</p>
+<p><strong>Signature:</strong> <code>filter: (predicate, list) -&gt; list</code></p>
+<p><code>predicate</code> receives the list item and must return <code>true</code> for items to keep.</p>
+<p><strong>Example</strong></p>
+<pre><code>numbers: [1, 2, 3]
+is-two?: (n) { n = 2 }
+filter(is-two?, numbers) // [2]
+</code></pre>
+
+</section>
+<section id="section-data-structures" data-doc-section="section-data-structures" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/data-structures.md">
+<h1 id="data-structures-data-structures">Data Structures</h1><h2 id="data-structures-objects">Objects</h2>
+<p>Immutable key-value maps with string keys.</p>
+<pre><code>my-object: {
+  name: &quot;Filip&quot;,
+  age: 35
+}
+</code></pre>
+<h3 id="data-structures-destructuring">Destructuring</h3>
+<p>Access properties with dot-notation. Missing keys return <code>null</code>.</p>
+<pre><code>my-object: {
+  name: &quot;Filip&quot;,
+  age: 35
+}
+
+log!(my-object.name) // &quot;Filip&quot;
+</code></pre>
+<pre><code>my-object: {
+  name: &quot;Filip&quot;,
+}
+
+log!(my-object.age) // null
+</code></pre>
+<h2 id="data-structures-lists">Lists</h2>
+<p>Immutable ordered collections written with square brackets.</p>
+<pre><code>my-list: [1, 2, 5, 6]
+names: [&quot;Tore&quot;, &quot;Knut&quot;, &quot;Agnes&quot;, &quot;Mefiboset&quot;]
+</code></pre>
+<p>Use zero-based indexing via helper functions (e.g. <code>first</code>, <code>rest</code>) or iterate with <code>map</code>, <code>reduce</code>, and <code>filter</code>.</p>
+
+</section>
+<section id="section-data-types" data-doc-section="section-data-types" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/data-types.md">
+<h1 id="data-types-data-types">Data Types</h1><h2 id="data-types-strings">Strings</h2>
+<p>Immutable sequences of UTF-8 characters enclosed in double quotes.</p>
+<pre><code>name: &quot;Filip&quot;
+</code></pre>
+<h3 id="data-types-replacements-x">Replacements <code>&quot;&lt;x&gt;&quot;</code></h3>
+<p>Use <code>&lt;identifier&gt;</code> placeholders to interpolate existing bindings into string literals.</p>
+<pre><code>name: &quot;Filip&quot;
+sentence: &quot;My name is &lt;name&gt;.&quot;
+</code></pre>
+<h2 id="data-types-numbers">Numbers</h2>
+<p>64-bit signed integers. Arithmetic operators operate strictly on numeric values.</p>
+<pre><code>age: 35
+</code></pre>
+<h2 id="data-types-null">null</h2>
+<p>Represents the absence of a value. Returned by the runtime when a lookup fails or a computation cannot produce a result.</p>
+<pre><code>object: { name: &quot;Filip&quot; }
+result: object.age // null
+</code></pre>
+<p><code>null</code> is chainable; property access on <code>null</code> always returns <code>null</code>.</p>
+<pre><code>foo: null
+foo.bar.baz // null
+</code></pre>
+
+</section>
+<section id="section-errors" data-doc-section="section-errors" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/errors.md">
+<h1 id="errors-errors">Errors</h1>
+<p>Runtime errors include a descriptive message that explains what went wrong and how
+to correct it. Errors do not recover automatically; they terminate the current
+evaluation unless caught by higher-level tooling.</p>
+<h2 id="errors-doesnt-make-sense">Doesn't make sense</h2>
+<p>Raised when an operator is applied to operands of incompatible types, such as
+adding a number to a string. Arithmetic operators (<code>+</code>, <code>-</code>, <code>*</code>, <code>/</code>) only
+accept numbers, while logical operators (<code>&amp;</code>, <code>|</code>) only accept booleans.</p>
+<p><strong>Message format:</strong> <code>Doesn't make sense: &lt;explanation&gt;</code></p>
+<p><strong>Example</strong></p>
+<pre><code>1 + &quot;some string&quot;
+// Doesn't make sense: cannot add Number and String
+</code></pre>
+<pre><code>true - false
+// Doesn't make sense: cannot subtract Boolean values
+</code></pre>
+<h2 id="errors-suffix-error">Suffix error</h2>
+<p>Raised when a function definition uses the impure <code>!</code> suffix or boolean <code>?</code>
+suffix incorrectly.</p>
+<p><strong>Message format:</strong> <code>Suffix error: &lt;explanation&gt;</code></p>
+<p><strong>Examples</strong></p>
+<pre><code>pure!: (x) { x + 1 }
+// Suffix error: function marked ! but body has no impure calls
+</code></pre>
+<pre><code>is-sum?: (x, y) { x + y }
+// Suffix error: function marked ? but body does not return a Boolean
+</code></pre>
+
+</section>
+<section id="section-overview" data-doc-section="section-overview" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/overview.md">
+<h1 id="overview-fip-functional-intuitive-programming-language">FIP (Functional Intuitive Programming language)</h1>
+<ul>
+<li>
+<p>file extension <code>.fip</code></p>
+</li>
+<li>
+<p>Immutable programming language.</p>
+</li>
+<li>
+<p>Functional style</p>
+</li>
+</ul>
+<h2 id="overview-syntax-spec-files">Syntax spec files</h2>
+<ul>
+<li>./core.md</li>
+<li>./data-structures.md</li>
+<li>./data-types.md</li>
+<li>./functions.md</li>
+<li>./operators.md</li>
+<li>./errors.md</li>
+</ul>
+
+</section>
+<section id="section-functions" data-doc-section="section-functions" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/functions.md">
+<h1 id="functions-functions">Functions</h1>
+<p>Functions return the value produced by the final expression in their body.
+In multi-line bodies, each line receives the result of the previous one unless a new binding is introduced.</p>
+<h2 id="functions-definition">Definition</h2>
+<p>Functions are defined with the shape <code>&lt;name&gt;: (&lt;parameters&gt;) { &lt;body&gt; }</code>.</p>
+<pre><code>fn: (x) { x } // identity function definition
+</code></pre>
+<h3 id="functions-multiple-arguments">Multiple arguments</h3>
+<p>Separate multiple parameters with commas.</p>
+<pre><code>g: (x, y) { x + y } // add function definition
+g(1, 2) // 3
+</code></pre>
+<h2 id="functions-function-call">Function call</h2>
+<p>Provide arguments inside parentheses after the function name.</p>
+<pre><code>y: 2
+f: (x) { x + 1 }
+f(y) // 3
+</code></pre>
+<pre><code>increment: (x) { x + 1 }
+n: increment(1)
+log!(n) // 2
+</code></pre>
+<h2 id="functions-anonymous-function">Anonymous function</h2>
+<p>Anonymous functions drop the name but otherwise follow the same syntax.</p>
+<pre><code>(){ 1 = 1 } // returns true
+</code></pre>
+<h3 id="functions-anonymous-suffixes">Anonymous suffixes</h3>
+<p>Inline functions can adopt the same <code>!</code> and <code>?</code> suffix rules by attaching the suffix directly to the parameter list.</p>
+<pre><code>(x)! { log!(x) }    // impure anonymous function
+(x)? { x = 0 }      // boolean anonymous function
+</code></pre>
+<p>Combine this with composable blocks or higher-order calls:</p>
+<pre><code>numbers.filter((n)? { n &gt; 0 })
+numbers.map((n)! {
+  trace!(&quot;doubling&quot;, n)
+  n + n
+})
+</code></pre>
+<h2 id="functions-composable">Composable</h2>
+<p>Compose operations by stacking expressions—each line feeds the next.</p>
+<pre><code>identity: (x) { x }
+increment: (x) { x + 1 }
+
+f: (x) {
+  x // passed as parameter to increment
+  increment // incremented value passed to next increment
+  increment
+  identity
+}
+
+f(1) // 3
+</code></pre>
+<h2 id="functions-function-notations">Function notations</h2><h3 id="functions-impure-notation">Impure notation <code>!</code></h3>
+<p>Append <code>!</code> to indicate that a function has side effects (logging, tracing, IO, etc.).</p>
+<pre><code>imp!: (x) { log!(&quot;string&quot;) }
+</code></pre>
+<p>If a function calls any impure function, it must also use the <code>!</code> suffix.</p>
+<p>Correct:</p>
+<pre><code>foo!: (x) { log!(x) }
+</code></pre>
+<p>Wrong:</p>
+<pre><code>foo: (x) { log!(x) }
+</code></pre>
+<p>Note: The runtime rejects functions marked with <code>!</code> when no impure calls occur in the body.</p>
+<h4 id="functions-example">Example</h4>
+<p>Wrong:</p>
+<pre><code>my-imp!: () {
+  add(1, 2)
+}
+</code></pre>
+<p>Should throw a &quot;Not impure&quot; error.</p>
+<p>Correct:</p>
+<pre><code>my-imp!: () {
+  trace!(&quot;This is so dirty...&quot;, 42)
+}
+</code></pre>
+<h3 id="functions-boolean-notation">Boolean notation <code>?</code></h3>
+<p>Use the <code>?</code> suffix for functions that return a boolean value.</p>
+<pre><code>is-equal?: (x, y) { x = y }
+</code></pre>
+<p>A function that does not return a boolean value may not use the <code>?</code> suffix.</p>
+<h4 id="functions-example-1">Example</h4>
+<p>Wrong:</p>
+<pre><code>is-it?: (x) { x + 3 }
+</code></pre>
+<p>Correct:</p>
+<pre><code>is-zero?: (x) { x = 0 }
+</code></pre>
+
+</section>
+<section id="section-imports" data-doc-section="section-imports" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/imports.md">
+<h1 id="imports-imports">Imports</h1>
+<p>Fippli programs can pull definitions from other files using the <code>use</code> statement. This enables code splitting across multiple <code>.fip</code> modules while keeping the call sites explicit.</p>
+<h2 id="imports-basic-syntax">Basic Syntax</h2>
+<pre><code>use &lt;name&gt; from &quot;&lt;module-path&gt;&quot;
+</code></pre>
+<ul>
+<li><code>name</code> is the identifier that will be introduced into the current scope.</li>
+<li><code>module-path</code> is a string literal pointing to another <code>.fip</code> file.</li>
+<li>The module path is resolved relative to the program entry point directory (for example, <code>src</code>). It is <strong>not</strong> resolved relative to the file that issues the <code>use</code> statement.</li>
+</ul>
+<p>Example:</p>
+<pre><code>use foo from &quot;lib/foo&quot;
+
+log!(foo())
+</code></pre>
+<p>The example above loads <code>src/lib/foo.fip</code>, evaluates it (if it has not already been loaded), and binds the exported value to <code>foo</code> in the current scope.</p>
+<h2 id="imports-semantics">Semantics</h2>
+<ul>
+<li>Each imported file is evaluated once. Subsequent <code>use</code> statements for the same module path reuse the previously computed module environment.</li>
+<li>A module must explicitly declare which bindings it exports. Importing a module binds only the exported value associated with the requested name.</li>
+<li>Import cycles are detected at runtime; attempting to load modules that depend on each other produces a descriptive error.</li>
+</ul>
+<h2 id="imports-namespace-imports">Namespace Imports</h2>
+<p>You can import an entire module namespace with the <code>as</code> clause:</p>
+<pre><code>use math as m from &quot;core/math&quot;
+
+m.increment(41)
+</code></pre>
+<p>This binds the module environment to the local identifier <code>m</code>. Access individual bindings using the familiar object property syntax.</p>
+<h2 id="imports-selective-imports">Selective Imports</h2>
+<p>Import multiple names from the same module with a destructuring-style form:</p>
+<pre><code>use {increment, decrement} from &quot;core/math&quot;
+
+increment(1)
+decrement(1)
+</code></pre>
+<p>Selective imports bind each listed name into the current scope. Missing exports trigger a runtime error that names the missing identifier and module path.</p>
+<h2 id="imports-error-handling">Error Handling</h2>
+<p>The interpreter raises a runtime error in the following cases:</p>
+<ul>
+<li>The module file cannot be found at the resolved path.</li>
+<li>The module fails to evaluate.</li>
+<li>The requested binding is not exported by the module.</li>
+<li>An import cycle is encountered.</li>
+</ul>
+<p>These errors include the original <code>use</code> site and the attempted module path to aid debugging.</p>
+
+</section>
+<section id="section-operators" data-doc-section="section-operators" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/operators.md">
+<h1 id="operators-operators">Operators</h1><h2 id="operators-assignment">Assignment <code>:</code></h2>
+<p>Assign values to names with <code>:</code>.</p>
+<h3 id="operators-example">Example</h3>
+<pre><code>n: 123
+name: &quot;Filip&quot;
+fn: (x) { x }
+x: { foo: &quot;bar&quot; }
+</code></pre>
+<h2 id="operators-addition">Addition <code>+</code></h2>
+<p>Adds two numeric values. Operands must be numbers.</p>
+<h3 id="operators-example-1">Example</h3>
+<pre><code>1 + 2 // -&gt; 3
+</code></pre>
+<h3 id="operators-add-builtin">add (builtin)</h3>
+<pre><code>add: (x,y) { x + y }
+</code></pre>
+<h2 id="operators-subtraction">Subtraction <code>-</code></h2>
+<p>Subtracts the right operand from the left operand. Operands must be numbers.</p>
+<pre><code>1 - 2 // -&gt; -1
+</code></pre>
+<h3 id="operators-subtract-builtin">subtract (builtin)</h3>
+<pre><code>subtract: (x,y) { x - y }
+</code></pre>
+<h2 id="operators-division">Division <code>/</code></h2>
+<p>Divides the left operand by the right operand. Operands must be numbers.</p>
+<pre><code>1 / 2 // -&gt; 1/2
+</code></pre>
+<h3 id="operators-divide-builtin">divide (builtin)</h3>
+<pre><code>divide: (x,y) { x / y }
+</code></pre>
+<h2 id="operators-multiplication">Multiplication <code>*</code></h2>
+<p>Multiplies the operands. Operands must be numbers.</p>
+<pre><code>2 * 3 // -&gt; 6
+</code></pre>
+<h3 id="operators-multiply-builtin">multiply (builtin)</h3>
+<pre><code>multiply: (x, y) { x * y }
+</code></pre>
+<h2 id="operators-and">And <code>&amp;</code></h2>
+<p>Logical conjunction. Returns <code>true</code> only when both operands are <code>true</code>.</p>
+<pre><code>true &amp; true // true
+false &amp; false // false
+false &amp; true // false
+true &amp; false // false
+</code></pre>
+<h3 id="operators-and-builtin">and? (builtin)</h3>
+<pre><code>and?: (x, y) { x &amp; y }
+</code></pre>
+<h2 id="operators-or">Or <code>|</code></h2>
+<p>Logical disjunction. Returns <code>true</code> when at least one operand is <code>true</code>.</p>
+<pre><code>true | true // true
+false | false // false
+false | true // true
+true | false // true
+</code></pre>
+<h3 id="operators-or-builtin">or? (builtin)</h3>
+<pre><code>or?: (x,y) { x | y }
+</code></pre>
+<h2 id="operators-comparison">Comparison <code>=</code></h2>
+<p>Structural equality. Returns <code>true</code> when both operands are equal by value and type.</p>
+<pre><code>1 = 1 // true
+1 = 2 // false
+&quot;hello&quot; = &quot;hello&quot; // true
+&quot;hello&quot; = &quot;foo&quot; // false
+1 = true // false
+23 = &quot;hello&quot; // false
+</code></pre>
+
+</section>
+
+    </main>
+  </body>
+</html>

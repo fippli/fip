@@ -1,0 +1,40 @@
+{
+  "name": "fip-syntax",
+  "displayName": "FIP Language Syntax Highlighting",
+  "description": "Syntax highlighting for FIP (Functional Intuitive Programming language)",
+  "version": "0.0.1",
+  "publisher": "fippli",
+  "engines": {
+    "vscode": "^1.74.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "fip",
+        "aliases": [
+          "FIP",
+          "fip"
+        ],
+        "extensions": [
+          ".fip"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "fip",
+        "scopeName": "source.fip",
+        "path": "./syntaxes/fip.tmLanguage.json"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fippli/fip"
+  },
+  "license": "MIT"
+}

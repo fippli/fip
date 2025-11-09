@@ -1,0 +1,9 @@
+[package]
+name = "fip-docs-builder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pulldown-cmark = "0.9"
+walkdir = "2.5"
+

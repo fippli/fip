@@ -1,0 +1,17 @@
+sum: (x, y) {
+  x + y
+}
+
+bad_foo: (x) {
+  log!(x)
+}
+
+bad_bar!: (x) {
+  x + 1
+}
+
+bad_is_it?: (x) {
+  x + 3
+}
+
+export sum

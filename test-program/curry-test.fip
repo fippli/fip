@@ -1,0 +1,27 @@
+// Test currying: functions are curried by default
+add3: (x, y, z) { x + y + z }
+
+// Partial application: create functions with fewer arguments
+add1: add3(1)      // function waiting for y and z
+add2: add1(2)      // function waiting for z
+result: add2(3)    // should be 6
+
+// Test that all arguments in one call still works
+direct-result: add3(10, 20, 30)  // should be 60
+
+// Test partial application with two arguments
+add-one-more: add3(5, 10)       // function waiting for z
+result2: add-one-more(15)       // should be 30
+
+// Log results
+log!(result)
+log!(direct-result)
+log!(result2)
+
+c: (x) {
+  x
+  add3(1,4)
+}
+
+result-compose: c(10)
+log!(result-compose)

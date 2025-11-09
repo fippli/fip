@@ -1,0 +1,13 @@
+/target
+**/target/
+
+**/node_modules/
+!tools/linter-extension/node_modules/
+
+**/out/
+!tools/linter-extension/out/
+
+.DS_Store
+*.log
+npm-debug.log*
+**/*.rs.bk

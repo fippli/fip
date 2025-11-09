@@ -1,0 +1,12 @@
+[package]
+name = "fip-format"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "fip-format"
+path = "src/main.rs"
+
+[dependencies]
+fippli_lang = { path = "../.." }
+

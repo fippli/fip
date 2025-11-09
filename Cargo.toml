@@ -1,0 +1,11 @@
+[package]
+name = "fippli_lang"
+version = "0.1.0"
+edition = "2021"
+default-run = "fip"
+
+[[bin]]
+name = "fip"
+path = "src/cli.rs"
+
+[dependencies]

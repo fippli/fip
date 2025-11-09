@@ -1,0 +1,62 @@
+use sum from "sum"
+
+log!("hello, world")
+
+name: "Filip"
+
+log!(name)
+
+log!("inject <name>")
+
+log!(identity("a string from identity"))
+
+person: {
+  name: "Filip",
+  age: 35
+}
+
+log!(person)
+log!(person.name)
+log!(person.address)
+
+numbers: [1, 2, 3]
+log!(numbers) 
+log!(map((n) { n + n }, numbers))
+
+log!("Reduce:")
+log!(reduce((acc, n) { acc + n }, 0, numbers))
+
+log!("Filter:")
+log!(filter((n) { n = 2 }, numbers))
+
+log!("And?:")
+log!(and?(true, false))
+
+composed!: (x) {
+  x
+  increment
+  (value)! { trace!("after first increment", value) }
+  increment
+}
+
+log!(composed!(1))
+log!((){1 = 1}())
+
+foo: null
+
+log!(foo.bar.baz)
+
+n: sum(1, 9)
+log!(n)
+log!(sum(1, 7))
+
+do-many-things!: (x) {
+  x
+  trace!("x")
+  reduce(sum, 0)
+  trace!("sum")
+}
+
+
+a: [1, 2, 3]
+do-many-things!(a)

@@ -1,0 +1,423 @@
+use std::{collections::HashSet, env, fs};
+
+use fippli_lang::ast::{
+    BinaryOperator, Expression, Function, Program, Statement, StringSegment,
+};
+use fippli_lang::lexer::Lexer;
+use fippli_lang::parser::Parser;
+
+#[derive(Debug, Clone)]
+pub struct LintError {
+    pub line: usize,
+    pub column: usize,
+    pub message: String,
+    pub severity: Severity,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Error,
+    Warning,
+    Info,
+}
+
+pub struct Linter {
+    errors: Vec<LintError>,
+    defined_names: HashSet<String>,
+    used_names: HashSet<String>,
+    exported_names: HashSet<String>,
+}
+
+impl Linter {
+    pub fn new() -> Self {
+        Self {
+            errors: Vec::new(),
+            defined_names: HashSet::new(),
+            used_names: HashSet::new(),
+            exported_names: HashSet::new(),
+        }
+    }
+
+    pub fn lint(&mut self, program: &Program) -> Vec<LintError> {
+        self.errors.clear();
+        self.defined_names.clear();
+        self.used_names.clear();
+        self.exported_names.clear();
+
+        // First pass: collect all definitions and exports
+        for stmt in &program.statements {
+            self.collect_definitions(stmt);
+        }
+
+        // Second pass: check rules and collect usage
+        for stmt in &program.statements {
+            self.check_statement(stmt);
+        }
+
+        self.errors.clone()
+    }
+
+    fn collect_definitions(&mut self, stmt: &Statement) {
+        match stmt {
+            Statement::Assignment { name, .. } => {
+                self.defined_names.insert(name.clone());
+            }
+            Statement::Function(func) => {
+                self.defined_names.insert(func.name.clone());
+            }
+            Statement::Export(export) => {
+                self.exported_names.insert(export.name.clone());
+            }
+            _ => {}
+        }
+    }
+
+    fn check_statement(&mut self, stmt: &Statement) {
+        match stmt {
+            Statement::Function(func) => {
+                self.check_function(func);
+            }
+            Statement::Assignment { expr, .. } => {
+                self.check_expression(expr);
+                self.collect_usage(expr);
+            }
+            Statement::Expression(expr) => {
+                self.check_expression(expr);
+                self.collect_usage(expr);
+            }
+            Statement::Use(_) => {}
+            Statement::Export(_) => {}
+        }
+    }
+
+    fn check_function(&mut self, func: &Function) {
+        let has_impure_suffix = func.name.ends_with('!');
+        let has_boolean_suffix = func.name.ends_with('?');
+
+        // Check if function marked as impure actually calls impure functions
+        if func.impure || has_impure_suffix {
+            if !Self::find_impure_call(&func.body) {
+                self.errors.push(LintError {
+                    line: 1,
+                    column: 1,
+                    message: format!(
+                        "Function '{}' is marked impure but performs no impure operations",
+                        func.name
+                    ),
+                    severity: Severity::Error,
+                });
+            }
+        } else {
+            // Check if function calls impure functions but isn't marked impure
+            if let Some(impure_call) = Self::find_impure_call_name(&func.body) {
+                self.errors.push(LintError {
+                    line: 1,
+                    column: 1,
+                    message: format!(
+                        "Function '{}' must be declared impure (end the name with '!') to call '{}'",
+                        func.name, impure_call
+                    ),
+                    severity: Severity::Error,
+                });
+            }
+        }
+
+        // Check boolean suffix
+        if has_boolean_suffix {
+            if !Self::returns_boolean(&func.body) {
+                self.errors.push(LintError {
+                    line: 1,
+                    column: 1,
+                    message: format!("Function '{}' must return a boolean value", func.name),
+                    severity: Severity::Error,
+                });
+            }
+        }
+
+        // Check expression for other issues
+        self.check_expression(&func.body);
+        self.collect_usage(&func.body);
+    }
+
+    fn check_expression(&mut self, expr: &Expression) {
+        match expr {
+            Expression::Lambda { body, impure, .. } => {
+                if *impure {
+                    if !Self::find_impure_call(body.as_ref()) {
+                        self.errors.push(LintError {
+                            line: 1,
+                            column: 1,
+                            message: "Anonymous function is marked impure but performs no impure operations".to_string(),
+                            severity: Severity::Error,
+                        });
+                    }
+                } else {
+                    if let Some(impure_call) = Self::find_impure_call_name(body.as_ref()) {
+                        self.errors.push(LintError {
+                            line: 1,
+                            column: 1,
+                            message: format!(
+                                "Anonymous function must be marked impure (use '!') to call '{}'",
+                                impure_call
+                            ),
+                            severity: Severity::Error,
+                        });
+                    }
+                }
+                self.check_expression(body.as_ref());
+            }
+            Expression::Call { callee, args } => {
+                self.check_expression(callee.as_ref());
+                for arg in args {
+                    self.check_expression(arg);
+                }
+            }
+            Expression::Block(exprs) => {
+                for expr in exprs {
+                    self.check_expression(expr);
+                }
+            }
+            Expression::Object(fields) => {
+                for field in fields {
+                    self.check_expression(&field.value);
+                }
+            }
+            Expression::List(elements) => {
+                for elem in elements {
+                    self.check_expression(elem);
+                }
+            }
+            Expression::Binary { left, right, .. } => {
+                self.check_expression(left.as_ref());
+                self.check_expression(right.as_ref());
+            }
+            Expression::PropertyAccess { object, .. } => {
+                self.check_expression(object.as_ref());
+            }
+            Expression::String(template) => {
+                for segment in &template.segments {
+                    if let StringSegment::Expr(expr) = segment {
+                        self.check_expression(expr);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_usage(&mut self, expr: &Expression) {
+        match expr {
+            Expression::Identifier(name) => {
+                self.used_names.insert(name.clone());
+            }
+            Expression::Call { callee, args } => {
+                self.collect_usage(callee.as_ref());
+                for arg in args {
+                    self.collect_usage(arg);
+                }
+            }
+            Expression::Block(exprs) => {
+                for expr in exprs {
+                    self.collect_usage(expr);
+                }
+            }
+            Expression::Lambda { body, .. } => {
+                self.collect_usage(body.as_ref());
+            }
+            Expression::Object(fields) => {
+                for field in fields {
+                    self.collect_usage(&field.value);
+                }
+            }
+            Expression::List(elements) => {
+                for elem in elements {
+                    self.collect_usage(elem);
+                }
+            }
+            Expression::Binary { left, right, .. } => {
+                self.collect_usage(left.as_ref());
+                self.collect_usage(right.as_ref());
+            }
+            Expression::PropertyAccess { object, .. } => {
+                self.collect_usage(object.as_ref());
+            }
+            Expression::String(template) => {
+                for segment in &template.segments {
+                    if let StringSegment::Expr(expr) = segment {
+                        self.collect_usage(expr);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn find_impure_call(expr: &Expression) -> bool {
+        match expr {
+            Expression::Call { callee, args } => {
+                if let Some(name) = Self::identifier_name(callee.as_ref()) {
+                    if name.ends_with('!') {
+                        return true;
+                    }
+                }
+                Self::find_impure_call(callee.as_ref())
+                    || args.iter().any(|arg| Self::find_impure_call(arg))
+            }
+            Expression::Identifier(name) => name.ends_with('!'),
+            Expression::Block(exprs) => exprs.iter().any(|e| Self::find_impure_call(e)),
+            Expression::Lambda { body, .. } => Self::find_impure_call(body.as_ref()),
+            Expression::Object(fields) => {
+                fields.iter().any(|f| Self::find_impure_call(&f.value))
+            }
+            Expression::List(elements) => {
+                elements.iter().any(|e| Self::find_impure_call(e))
+            }
+            Expression::Binary { left, right, .. } => {
+                Self::find_impure_call(left.as_ref()) || Self::find_impure_call(right.as_ref())
+            }
+            Expression::PropertyAccess { object, .. } => Self::find_impure_call(object.as_ref()),
+            Expression::String(template) => template
+                .segments
+                .iter()
+                .any(|s| matches!(s, StringSegment::Expr(e) if Self::find_impure_call(e))),
+            _ => false,
+        }
+    }
+
+    fn find_impure_call_name(expr: &Expression) -> Option<String> {
+        match expr {
+            Expression::Call { callee, args } => {
+                if let Some(name) = Self::identifier_name(callee.as_ref()) {
+                    if name.ends_with('!') {
+                        return Some(name);
+                    }
+                }
+                Self::find_impure_call_name(callee.as_ref())
+                    .or_else(|| args.iter().find_map(|arg| Self::find_impure_call_name(arg)))
+            }
+            Expression::Identifier(name) => {
+                if name.ends_with('!') {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            }
+            Expression::Block(exprs) => {
+                exprs.iter().find_map(|e| Self::find_impure_call_name(e))
+            }
+            Expression::Lambda { body, .. } => Self::find_impure_call_name(body.as_ref()),
+            Expression::Object(fields) => {
+                fields.iter().find_map(|f| Self::find_impure_call_name(&f.value))
+            }
+            Expression::List(elements) => {
+                elements.iter().find_map(|e| Self::find_impure_call_name(e))
+            }
+            Expression::Binary { left, right, .. } => {
+                Self::find_impure_call_name(left.as_ref())
+                    .or_else(|| Self::find_impure_call_name(right.as_ref()))
+            }
+            Expression::PropertyAccess { object, .. } => {
+                Self::find_impure_call_name(object.as_ref())
+            }
+            Expression::String(template) => template.segments.iter().find_map(|s| {
+                if let StringSegment::Expr(e) = s {
+                    Self::find_impure_call_name(e)
+                } else {
+                    None
+                }
+            }),
+            _ => None,
+        }
+    }
+
+    fn identifier_name(expr: &Expression) -> Option<String> {
+        match expr {
+            Expression::Identifier(name) => Some(name.clone()),
+            _ => None,
+        }
+    }
+
+    fn returns_boolean(expr: &Expression) -> bool {
+        match expr {
+            Expression::Boolean(_) => true,
+            Expression::Binary { op, .. } => {
+                matches!(op, BinaryOperator::Eq | BinaryOperator::And | BinaryOperator::Or)
+            }
+            Expression::Call { callee, .. } => {
+                if let Some(name) = Self::identifier_name(callee.as_ref()) {
+                    name.ends_with('?')
+                } else {
+                    false
+                }
+            }
+            Expression::Block(exprs) => {
+                exprs.last().map(|e| Self::returns_boolean(e)).unwrap_or(false)
+            }
+            _ => false,
+        }
+    }
+}
+
+fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    if args.len() < 2 {
+        eprintln!("Usage: fip-lint <file.fip>");
+        std::process::exit(1);
+    }
+
+    let file_path = &args[1];
+    let source = match fs::read_to_string(file_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error reading file: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let tokens = match Lexer::new(&source).lex() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Lexer error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let mut parser = Parser::new(tokens);
+    let program = match parser.parse_program() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Parser error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let mut linter = Linter::new();
+    let errors = linter.lint(&program);
+
+    if errors.is_empty() {
+        println!("No linting errors found.");
+        std::process::exit(0);
+    }
+
+    let mut has_errors = false;
+    for error in &errors {
+        let severity_str = match error.severity {
+            Severity::Error => "error",
+            Severity::Warning => "warning",
+            Severity::Info => "info",
+        };
+        println!(
+            "{}:{}:{}: {}: {}",
+            file_path, error.line, error.column, severity_str, error.message
+        );
+        if error.severity == Severity::Error {
+            has_errors = true;
+        }
+    }
+
+    if has_errors {
+        std::process::exit(1);
+    }
+}
+
