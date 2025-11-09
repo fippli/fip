@@ -26,11 +26,17 @@ pub enum TokenKind {
     Ampersand,
     Pipe,
     Dot,
+    Spread,
     Plus,
     Minus,
     Star,
     Slash,
     Equal,
+    NotEqual,
+    LessThan,
+    LessThanEq,
+    GreaterThan,
+    GreaterThanEq,
     Exclamation,
     Question,
     Eof,
@@ -155,10 +161,29 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 '.' => {
-                    self.advance_char();
-                    Token {
-                        kind: TokenKind::Dot,
-                        span: start..self.current_index,
+                    // Check for spread operator (...)
+                    self.advance_char(); // Consume the first dot
+                    if matches!(self.peek_char(), Some('.')) {
+                        self.advance_char(); // Consume the second dot
+                        if matches!(self.peek_char(), Some('.')) {
+                            self.advance_char(); // Consume the third dot
+                            Token {
+                                kind: TokenKind::Spread,
+                                span: start..self.current_index,
+                            }
+                        } else {
+                            // Two dots but not three - error
+                            return Err(self.error_with_location(
+                                format!("Unexpected '..' at {}", start),
+                                start,
+                            ));
+                        }
+                    } else {
+                        // Just a single dot - property access
+                        Token {
+                            kind: TokenKind::Dot,
+                            span: start..self.current_index,
+                        }
                     }
                 }
                 '+' => {
@@ -215,6 +240,36 @@ impl<'a> Lexer<'a> {
                         span: start..self.current_index,
                     }
                 }
+                '<' => {
+                    self.advance_char();
+                    if matches!(self.peek_char(), Some('=')) {
+                        self.advance_char();
+                        Token {
+                            kind: TokenKind::LessThanEq,
+                            span: start..self.current_index,
+                        }
+                    } else {
+                        Token {
+                            kind: TokenKind::LessThan,
+                            span: start..self.current_index,
+                        }
+                    }
+                }
+                '>' => {
+                    self.advance_char();
+                    if matches!(self.peek_char(), Some('=')) {
+                        self.advance_char();
+                        Token {
+                            kind: TokenKind::GreaterThanEq,
+                            span: start..self.current_index,
+                        }
+                    } else {
+                        Token {
+                            kind: TokenKind::GreaterThan,
+                            span: start..self.current_index,
+                        }
+                    }
+                }
                 '!' => {
                     self.advance_char();
                     Token {
@@ -226,6 +281,14 @@ impl<'a> Lexer<'a> {
                     self.advance_char();
                     Token {
                         kind: TokenKind::Question,
+                        span: start..self.current_index,
+                    }
+                }
+                '\u{2260}' => {
+                    // Unicode not equal sign (≠)
+                    self.advance_char();
+                    Token {
+                        kind: TokenKind::NotEqual,
                         span: start..self.current_index,
                     }
                 }

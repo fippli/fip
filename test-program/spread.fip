@@ -1,0 +1,18 @@
+// Test spread operator for objects
+x: { name: "Jim" }
+y: { ...x, age: 100 }
+z: { ...y, age: 75 }
+
+log!(y.name)
+log!(y.age)
+log!(z.name)
+log!(z.age)
+
+// Test spread operator for arrays
+a: [1, 2, 3]
+b: [...a, 4, 5]
+c: [0, ...b]
+
+log!(b)
+log!(c)
+

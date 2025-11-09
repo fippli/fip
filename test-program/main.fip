@@ -60,3 +60,31 @@ do-many-things!: (x) {
 
 a: [1, 2, 3]
 do-many-things!(a)
+
+person-2: { 
+  name-2: "Filip", 
+  age-2: 35, 
+  stuff: {
+    item-1: "one",
+    item-2: "two",
+    item-3: "three",
+  }
+}
+
+{ name-2, age-2, stuff: { item-1, item-2, item-3 } }: person-2
+log!(name-2)
+log!(age-2)
+log!(item-1)
+log!(item-2)
+log!(item-3)
+
+arr: [1, 2, 3]
+[a1, b1, c1]: arr
+log!(a1)
+log!(b1)
+log!(c1)
+
+for-each!(log!, arr)
+
+log!(() { 1 = 2 }())
+log!(() { 1 ≠ 2 }())

@@ -44,7 +44,6 @@ f(y) // 3
 ```
 
 ```
-increment: (x) { x + 1 }
 n: increment(1)
 log!(n) // 2
 ```
@@ -81,9 +80,6 @@ numbers.map((n)! {
 Compose operations by stacking expressions—each line feeds the next.
 
 ```
-identity: (x) { x }
-increment: (x) { x + 1 }
-
 f: (x) {
   x // passed as parameter to increment
   increment // incremented value passed to next increment

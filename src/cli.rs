@@ -4,7 +4,8 @@ use std::{
 };
 
 use fippli_lang::ast::{
-    BinaryOperator, Expression, Function, Program, Statement, StringSegment, UseStatement,
+    BinaryOperator, Expression, Function, ObjectField, ObjectPatternField, Pattern, Program,
+    Statement, StringSegment, UseStatement,
 };
 use fippli_lang::error::LangError;
 use fippli_lang::interpreter::Interpreter;
@@ -21,6 +22,14 @@ fn main() {
 
     let command = &args[1];
     let result = match command.as_str() {
+        "help" | "--help" | "-h" => {
+            print_usage();
+            Ok(())
+        }
+        "version" | "--version" | "-v" => {
+            print_version();
+            Ok(())
+        }
         "run" => {
             if args.len() < 3 {
                 eprintln!("Error: 'run' command requires a file argument");
@@ -58,6 +67,12 @@ fn print_usage() {
     eprintln!("  fip run <file.fip>        Run a FIP program");
     eprintln!("  fip format <file.fip>     Format a FIP source file (prints to stdout)");
     eprintln!("  fip format <file.fip> -w  Format a FIP source file (writes to file)");
+    eprintln!("  fip help                  Show this help message");
+    eprintln!("  fip version               Show version information");
+}
+
+fn print_version() {
+    println!("fip {}", env!("CARGO_PKG_VERSION"));
 }
 
 fn run_command(file: &str) -> Result<(), LangError> {
@@ -149,13 +164,40 @@ impl Formatter {
 
     fn format_statement(&mut self, stmt: &Statement) -> String {
         match stmt {
-            Statement::Assignment { name, expr } => {
-                format!("{}: {}", name, self.format_expression(expr))
+            Statement::Assignment { pattern, expr } => {
+                format!(
+                    "{}: {}",
+                    self.format_pattern(pattern),
+                    self.format_expression(expr)
+                )
             }
             Statement::Function(func) => self.format_function(func),
             Statement::Expression(expr) => self.format_expression(expr),
             Statement::Use(use_stmt) => self.format_use_statement(use_stmt),
             Statement::Export(export) => format!("export {}", export.name),
+        }
+    }
+
+    fn format_pattern(&mut self, pattern: &Pattern) -> String {
+        match pattern {
+            Pattern::Identifier(name) => name.clone(),
+            Pattern::List(patterns) => {
+                let formatted: Vec<String> =
+                    patterns.iter().map(|p| self.format_pattern(p)).collect();
+                format!("[{}]", formatted.join(", "))
+            }
+            Pattern::Object(fields) => {
+                let formatted: Vec<String> = fields
+                    .iter()
+                    .map(|f| match f {
+                        ObjectPatternField::Shorthand(name) => name.clone(),
+                        ObjectPatternField::Field { name, pattern } => {
+                            format!("{}: {}", name, self.format_pattern(pattern))
+                        }
+                    })
+                    .collect();
+                format!("{{ {} }}", formatted.join(", "))
+            }
         }
     }
 
@@ -241,13 +283,18 @@ impl Formatter {
                 self.indent_level += 1;
                 let formatted: Vec<String> = fields
                     .iter()
-                    .map(|f| {
-                        format!(
-                            "{}{}: {}",
-                            self.indent(),
-                            f.name,
-                            self.format_expression(&f.value)
-                        )
+                    .map(|f| match f {
+                        ObjectField::Field { name, value } => {
+                            format!(
+                                "{}{}: {}",
+                                self.indent(),
+                                name,
+                                self.format_expression(value)
+                            )
+                        }
+                        ObjectField::Spread(expr) => {
+                            format!("{}...{}", self.indent(), self.format_expression(expr))
+                        }
                     })
                     .collect();
                 self.indent_level = old_indent;
@@ -257,9 +304,19 @@ impl Formatter {
                 if elements.is_empty() {
                     return "[]".to_string();
                 }
-                let formatted: Vec<String> =
-                    elements.iter().map(|e| self.format_expression(e)).collect();
+                let formatted: Vec<String> = elements
+                    .iter()
+                    .map(|e| match e {
+                        Expression::Spread(expr) => {
+                            format!("...{}", self.format_expression(expr.as_ref()))
+                        }
+                        other => self.format_expression(other),
+                    })
+                    .collect();
                 format!("[{}]", formatted.join(", "))
+            }
+            Expression::Spread(expr) => {
+                format!("...{}", self.format_expression(expr.as_ref()))
             }
             Expression::Call { callee, args } => {
                 let callee_str = self.format_expression(callee);
@@ -279,6 +336,11 @@ impl Formatter {
                     BinaryOperator::Mul => "*",
                     BinaryOperator::Div => "/",
                     BinaryOperator::Eq => "=",
+                    BinaryOperator::NotEq => "!=",
+                    BinaryOperator::LessThan => "<",
+                    BinaryOperator::LessThanEq => "<=",
+                    BinaryOperator::GreaterThan => ">",
+                    BinaryOperator::GreaterThanEq => ">=",
                     BinaryOperator::And => "&",
                     BinaryOperator::Or => "|",
                 };

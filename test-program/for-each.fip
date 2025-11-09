@@ -1,0 +1,4 @@
+// Test for-each!
+words: ["a", "b", "c"]
+for-each!((word)! { log!(word) }, words)
+

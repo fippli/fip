@@ -1,8 +1,10 @@
-use std::{collections::HashSet, env, fs};
+use std::{collections::HashSet, env, fs, path::PathBuf};
 
 use fippli_lang::ast::{
-    BinaryOperator, Expression, Function, Program, Statement, StringSegment,
+    BinaryOperator, Expression, Function, ObjectField, ObjectPatternField, Pattern, Program,
+    Statement, StringSegment,
 };
+use fippli_lang::error::{byte_offset_to_line, LangError};
 use fippli_lang::lexer::Lexer;
 use fippli_lang::parser::Parser;
 
@@ -26,16 +28,34 @@ pub struct Linter {
     defined_names: HashSet<String>,
     used_names: HashSet<String>,
     exported_names: HashSet<String>,
+    source: String,
 }
 
 impl Linter {
-    pub fn new() -> Self {
+    pub fn new(source: String) -> Self {
         Self {
             errors: Vec::new(),
             defined_names: HashSet::new(),
             used_names: HashSet::new(),
             exported_names: HashSet::new(),
+            source,
         }
+    }
+
+    fn error_at(&mut self, offset: usize, message: String, severity: Severity) {
+        let line = byte_offset_to_line(&self.source, offset);
+        let column = self.source[..offset.min(self.source.len())]
+            .chars()
+            .rev()
+            .take_while(|&c| c != '\n')
+            .count()
+            + 1;
+        self.errors.push(LintError {
+            line,
+            column,
+            message,
+            severity,
+        });
     }
 
     pub fn lint(&mut self, program: &Program) -> Vec<LintError> {
@@ -59,8 +79,8 @@ impl Linter {
 
     fn collect_definitions(&mut self, stmt: &Statement) {
         match stmt {
-            Statement::Assignment { name, .. } => {
-                self.defined_names.insert(name.clone());
+            Statement::Assignment { pattern, .. } => {
+                self.collect_pattern_identifiers(pattern);
             }
             Statement::Function(func) => {
                 self.defined_names.insert(func.name.clone());
@@ -69,6 +89,31 @@ impl Linter {
                 self.exported_names.insert(export.name.clone());
             }
             _ => {}
+        }
+    }
+
+    fn collect_pattern_identifiers(&mut self, pattern: &Pattern) {
+        match pattern {
+            Pattern::Identifier(name) => {
+                self.defined_names.insert(name.clone());
+            }
+            Pattern::List(patterns) => {
+                for p in patterns {
+                    self.collect_pattern_identifiers(p);
+                }
+            }
+            Pattern::Object(fields) => {
+                for field in fields {
+                    match field {
+                        ObjectPatternField::Shorthand(name) => {
+                            self.defined_names.insert(name.clone());
+                        }
+                        ObjectPatternField::Field { pattern, .. } => {
+                            self.collect_pattern_identifiers(pattern);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -97,40 +142,38 @@ impl Linter {
         // Check if function marked as impure actually calls impure functions
         if func.impure || has_impure_suffix {
             if !Self::find_impure_call(&func.body) {
-                self.errors.push(LintError {
-                    line: 1,
-                    column: 1,
-                    message: format!(
+                // Use offset 0 as fallback since we don't have location info
+                self.error_at(
+                    0,
+                    format!(
                         "Function '{}' is marked impure but performs no impure operations",
                         func.name
                     ),
-                    severity: Severity::Error,
-                });
+                    Severity::Error,
+                );
             }
         } else {
             // Check if function calls impure functions but isn't marked impure
             if let Some(impure_call) = Self::find_impure_call_name(&func.body) {
-                self.errors.push(LintError {
-                    line: 1,
-                    column: 1,
-                    message: format!(
+                self.error_at(
+                    0,
+                    format!(
                         "Function '{}' must be declared impure (end the name with '!') to call '{}'",
                         func.name, impure_call
                     ),
-                    severity: Severity::Error,
-                });
+                    Severity::Error,
+                );
             }
         }
 
         // Check boolean suffix
         if has_boolean_suffix {
             if !Self::returns_boolean(&func.body) {
-                self.errors.push(LintError {
-                    line: 1,
-                    column: 1,
-                    message: format!("Function '{}' must return a boolean value", func.name),
-                    severity: Severity::Error,
-                });
+                self.error_at(
+                    0,
+                    format!("Function '{}' must return a boolean value", func.name),
+                    Severity::Error,
+                );
             }
         }
 
@@ -144,24 +187,23 @@ impl Linter {
             Expression::Lambda { body, impure, .. } => {
                 if *impure {
                     if !Self::find_impure_call(body.as_ref()) {
-                        self.errors.push(LintError {
-                            line: 1,
-                            column: 1,
-                            message: "Anonymous function is marked impure but performs no impure operations".to_string(),
-                            severity: Severity::Error,
-                        });
+                        self.error_at(
+                            0,
+                            "Anonymous function is marked impure but performs no impure operations"
+                                .to_string(),
+                            Severity::Error,
+                        );
                     }
                 } else {
                     if let Some(impure_call) = Self::find_impure_call_name(body.as_ref()) {
-                        self.errors.push(LintError {
-                            line: 1,
-                            column: 1,
-                            message: format!(
+                        self.error_at(
+                            0,
+                            format!(
                                 "Anonymous function must be marked impure (use '!') to call '{}'",
                                 impure_call
                             ),
-                            severity: Severity::Error,
-                        });
+                            Severity::Error,
+                        );
                     }
                 }
                 self.check_expression(body.as_ref());
@@ -179,8 +221,18 @@ impl Linter {
             }
             Expression::Object(fields) => {
                 for field in fields {
-                    self.check_expression(&field.value);
+                    match field {
+                        ObjectField::Field { value, .. } => {
+                            self.check_expression(value);
+                        }
+                        ObjectField::Spread(expr) => {
+                            self.check_expression(expr);
+                        }
+                    }
                 }
+            }
+            Expression::Spread(expr) => {
+                self.check_expression(expr.as_ref());
             }
             Expression::List(elements) => {
                 for elem in elements {
@@ -226,8 +278,18 @@ impl Linter {
             }
             Expression::Object(fields) => {
                 for field in fields {
-                    self.collect_usage(&field.value);
+                    match field {
+                        ObjectField::Field { value, .. } => {
+                            self.collect_usage(value);
+                        }
+                        ObjectField::Spread(expr) => {
+                            self.collect_usage(expr);
+                        }
+                    }
                 }
+            }
+            Expression::Spread(expr) => {
+                self.collect_usage(expr.as_ref());
             }
             Expression::List(elements) => {
                 for elem in elements {
@@ -266,12 +328,12 @@ impl Linter {
             Expression::Identifier(name) => name.ends_with('!'),
             Expression::Block(exprs) => exprs.iter().any(|e| Self::find_impure_call(e)),
             Expression::Lambda { body, .. } => Self::find_impure_call(body.as_ref()),
-            Expression::Object(fields) => {
-                fields.iter().any(|f| Self::find_impure_call(&f.value))
-            }
-            Expression::List(elements) => {
-                elements.iter().any(|e| Self::find_impure_call(e))
-            }
+            Expression::Object(fields) => fields.iter().any(|f| match f {
+                ObjectField::Field { value, .. } => Self::find_impure_call(value),
+                ObjectField::Spread(expr) => Self::find_impure_call(expr),
+            }),
+            Expression::Spread(expr) => Self::find_impure_call(expr.as_ref()),
+            Expression::List(elements) => elements.iter().any(|e| Self::find_impure_call(e)),
             Expression::Binary { left, right, .. } => {
                 Self::find_impure_call(left.as_ref()) || Self::find_impure_call(right.as_ref())
             }
@@ -302,20 +364,18 @@ impl Linter {
                     None
                 }
             }
-            Expression::Block(exprs) => {
-                exprs.iter().find_map(|e| Self::find_impure_call_name(e))
-            }
+            Expression::Block(exprs) => exprs.iter().find_map(|e| Self::find_impure_call_name(e)),
             Expression::Lambda { body, .. } => Self::find_impure_call_name(body.as_ref()),
-            Expression::Object(fields) => {
-                fields.iter().find_map(|f| Self::find_impure_call_name(&f.value))
-            }
+            Expression::Object(fields) => fields.iter().find_map(|f| match f {
+                ObjectField::Field { value, .. } => Self::find_impure_call_name(value),
+                ObjectField::Spread(expr) => Self::find_impure_call_name(expr),
+            }),
+            Expression::Spread(expr) => Self::find_impure_call_name(expr.as_ref()),
             Expression::List(elements) => {
                 elements.iter().find_map(|e| Self::find_impure_call_name(e))
             }
-            Expression::Binary { left, right, .. } => {
-                Self::find_impure_call_name(left.as_ref())
-                    .or_else(|| Self::find_impure_call_name(right.as_ref()))
-            }
+            Expression::Binary { left, right, .. } => Self::find_impure_call_name(left.as_ref())
+                .or_else(|| Self::find_impure_call_name(right.as_ref())),
             Expression::PropertyAccess { object, .. } => {
                 Self::find_impure_call_name(object.as_ref())
             }
@@ -341,7 +401,17 @@ impl Linter {
         match expr {
             Expression::Boolean(_) => true,
             Expression::Binary { op, .. } => {
-                matches!(op, BinaryOperator::Eq | BinaryOperator::And | BinaryOperator::Or)
+                matches!(
+                    op,
+                    BinaryOperator::Eq
+                        | BinaryOperator::NotEq
+                        | BinaryOperator::LessThan
+                        | BinaryOperator::LessThanEq
+                        | BinaryOperator::GreaterThan
+                        | BinaryOperator::GreaterThanEq
+                        | BinaryOperator::And
+                        | BinaryOperator::Or
+                )
             }
             Expression::Call { callee, .. } => {
                 if let Some(name) = Self::identifier_name(callee.as_ref()) {
@@ -350,9 +420,10 @@ impl Linter {
                     false
                 }
             }
-            Expression::Block(exprs) => {
-                exprs.last().map(|e| Self::returns_boolean(e)).unwrap_or(false)
-            }
+            Expression::Block(exprs) => exprs
+                .last()
+                .map(|e| Self::returns_boolean(e))
+                .unwrap_or(false),
             _ => false,
         }
     }
@@ -375,6 +446,7 @@ fn main() {
         }
     };
 
+    let file_path_buf = PathBuf::from(file_path);
     let tokens = match Lexer::new(&source).lex() {
         Ok(t) => t,
         Err(e) => {
@@ -383,16 +455,35 @@ fn main() {
         }
     };
 
-    let mut parser = Parser::new(tokens);
+    let mut parser = Parser::with_source_and_file(tokens, source.clone(), file_path_buf.clone());
     let program = match parser.parse_program() {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("Parser error: {}", e);
+            // Extract location from parser error and format it properly
+            match &e {
+                LangError::Parser(msg, location) => {
+                    if let Some(loc) = location {
+                        println!("{}:{}:1: error: {}", file_path, loc.line, msg);
+                    } else {
+                        println!("{}:1:1: error: {}", file_path, msg);
+                    }
+                }
+                LangError::Lexer(msg, location) => {
+                    if let Some(loc) = location {
+                        println!("{}:{}:1: error: {}", file_path, loc.line, msg);
+                    } else {
+                        println!("{}:1:1: error: {}", file_path, msg);
+                    }
+                }
+                _ => {
+                    eprintln!("Error: {}", e);
+                }
+            }
             std::process::exit(1);
         }
     };
 
-    let mut linter = Linter::new();
+    let mut linter = Linter::new(source);
     let errors = linter.lint(&program);
 
     if errors.is_empty() {
@@ -420,4 +511,3 @@ fn main() {
         std::process::exit(1);
     }
 }
-

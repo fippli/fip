@@ -1,7 +1,7 @@
 use crate::{
     ast::{
-        BinaryOperator, ExportStatement, Expression, Function, ObjectField, Program, Statement,
-        StringSegment, StringTemplate, UseStatement,
+        BinaryOperator, ExportStatement, Expression, Function, ObjectField, ObjectPatternField,
+        Pattern, Program, Statement, StringSegment, StringTemplate, UseStatement,
     },
     error::{byte_offset_to_line, LangError, LangResult, Location},
     lexer::{Lexer, Token, TokenKind},
@@ -51,41 +51,52 @@ impl Parser {
 
     pub fn parse_program(&mut self) -> LangResult<Program> {
         let mut statements = Vec::new();
+        let mut statement_starts = Vec::new();
 
         self.skip_newlines();
 
         while !self.is_at_end() {
+            let start_pos = self.current_token().span.start;
+            statement_starts.push(start_pos);
             statements.push(self.parse_statement()?);
             self.skip_newlines();
         }
 
         let program = Program { statements };
 
-        // Validate variable restrictions
-        self.validate_program(&program)?;
+        // Validate variable restrictions with statement start positions
+        self.validate_program(&program, &statement_starts)?;
 
         Ok(program)
     }
 
-    fn validate_program(&self, program: &Program) -> LangResult<()> {
+    fn validate_program(&self, program: &Program, statement_starts: &[usize]) -> LangResult<()> {
         use std::collections::HashSet;
 
         let mut defined_names = HashSet::new();
 
-        for statement in &program.statements {
+        for (statement_index, statement) in program.statements.iter().enumerate() {
+            let statement_start = statement_starts.get(statement_index).copied().unwrap_or(0);
             match statement {
-                Statement::Assignment { name, .. } => {
-                    // Validate kebab-case
-                    self.validate_kebab_case(name)?;
+                Statement::Assignment { pattern, .. } => {
+                    // Validate pattern and collect all identifiers
+                    let identifiers = self.collect_pattern_identifiers(pattern)?;
+                    for name in &identifiers {
+                        // Validate kebab-case
+                        self.validate_kebab_case(name)?;
 
-                    // Check for duplicate binding
-                    if defined_names.contains(name) {
-                        return Err(self.error_with_location(format!(
-                            "Cannot redefine immutable binding '{}'",
-                            name
-                        )));
+                        // Check for duplicate binding
+                        if defined_names.contains(name) {
+                            // Find the identifier in this statement
+                            let error_location =
+                                self.find_identifier_in_statement(statement_start, name);
+                            return Err(self.error_at_location(
+                                error_location,
+                                format!("Cannot redefine immutable binding '{}'", name),
+                            ));
+                        }
+                        defined_names.insert(name.clone());
                     }
-                    defined_names.insert(name.clone());
                 }
                 Statement::Function(func) => {
                     // Validate kebab-case for function name
@@ -93,10 +104,12 @@ impl Parser {
 
                     // Check for duplicate binding
                     if defined_names.contains(&func.name) {
-                        return Err(self.error_with_location(format!(
-                            "Cannot redefine immutable binding '{}'",
-                            func.name
-                        )));
+                        let error_location =
+                            self.find_identifier_in_statement(statement_start, &func.name);
+                        return Err(self.error_at_location(
+                            error_location,
+                            format!("Cannot redefine immutable binding '{}'", func.name),
+                        ));
                     }
                     defined_names.insert(func.name.clone());
 
@@ -109,20 +122,24 @@ impl Parser {
                     UseStatement::Single { name, .. } => {
                         self.validate_kebab_case(name)?;
                         if defined_names.contains(name) {
-                            return Err(self.error_with_location(format!(
-                                "Cannot redefine immutable binding '{}'",
-                                name
-                            )));
+                            let error_location =
+                                self.find_identifier_in_statement(statement_start, name);
+                            return Err(self.error_at_location(
+                                error_location,
+                                format!("Cannot redefine immutable binding '{}'", name),
+                            ));
                         }
                         defined_names.insert(name.clone());
                     }
                     UseStatement::Namespace { alias, .. } => {
                         self.validate_kebab_case(alias)?;
                         if defined_names.contains(alias) {
-                            return Err(self.error_with_location(format!(
-                                "Cannot redefine immutable binding '{}'",
-                                alias
-                            )));
+                            let error_location =
+                                self.find_identifier_in_statement(statement_start, alias);
+                            return Err(self.error_at_location(
+                                error_location,
+                                format!("Cannot redefine immutable binding '{}'", alias),
+                            ));
                         }
                         defined_names.insert(alias.clone());
                     }
@@ -130,10 +147,12 @@ impl Parser {
                         for name in names {
                             self.validate_kebab_case(name)?;
                             if defined_names.contains(name) {
-                                return Err(self.error_with_location(format!(
-                                    "Cannot redefine immutable binding '{}'",
-                                    name
-                                )));
+                                let error_location =
+                                    self.find_identifier_in_statement(statement_start, name);
+                                return Err(self.error_at_location(
+                                    error_location,
+                                    format!("Cannot redefine immutable binding '{}'", name),
+                                ));
                             }
                             defined_names.insert(name.clone());
                         }
@@ -150,6 +169,78 @@ impl Parser {
         }
 
         Ok(())
+    }
+
+    fn find_identifier_in_statement(&self, statement_start: usize, name: &str) -> usize {
+        // Find the token that starts at or after statement_start
+        let mut token_index = 0;
+        while token_index < self.tokens.len() {
+            if self.tokens[token_index].span.start >= statement_start {
+                break;
+            }
+            token_index += 1;
+        }
+
+        // Search for the identifier in this statement
+        while token_index < self.tokens.len() {
+            let token = &self.tokens[token_index];
+            match &token.kind {
+                TokenKind::Identifier(id) if id == name => {
+                    return token.span.start;
+                }
+                TokenKind::Newline => {
+                    // End of statement (but continue to next statement start if we haven't found it)
+                    let next_token_index = token_index + 1;
+                    if next_token_index < self.tokens.len() {
+                        // Check if next statement starts (non-newline token)
+                        if !matches!(self.tokens[next_token_index].kind, TokenKind::Newline) {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            token_index += 1;
+        }
+
+        // Fallback: use statement start
+        statement_start
+    }
+
+    fn error_at_location(&self, byte_offset: usize, msg: String) -> LangError {
+        let line = byte_offset_to_line(&self.source, byte_offset);
+        let location = Some(Location::new(self.file_path.clone(), line));
+        LangError::Parser(msg, location)
+    }
+
+    fn collect_pattern_identifiers(&self, pattern: &Pattern) -> LangResult<Vec<String>> {
+        let mut identifiers = Vec::new();
+        match pattern {
+            Pattern::Identifier(name) => {
+                identifiers.push(name.clone());
+            }
+            Pattern::List(patterns) => {
+                for p in patterns {
+                    identifiers.extend(self.collect_pattern_identifiers(p)?);
+                }
+            }
+            Pattern::Object(fields) => {
+                for field in fields {
+                    match field {
+                        ObjectPatternField::Shorthand(name) => {
+                            identifiers.push(name.clone());
+                        }
+                        ObjectPatternField::Field { name: _, pattern } => {
+                            // The field name itself doesn't create a binding, but the pattern does
+                            identifiers.extend(self.collect_pattern_identifiers(pattern)?);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(identifiers)
     }
 
     fn validate_kebab_case(&self, name: &str) -> LangResult<()> {
@@ -263,12 +354,10 @@ impl Parser {
             }
         }
 
-        let name = match self.current_kind().clone() {
-            TokenKind::Identifier(name) => {
-                self.advance();
-                name
-            }
-            _ => {
+        // Try to parse a pattern (identifier or list pattern)
+        let pattern = match self.try_parse_pattern() {
+            Some(pattern) => pattern,
+            None => {
                 let expr = self.parse_expression()?;
                 return Ok(Statement::Expression(expr));
             }
@@ -279,50 +368,54 @@ impl Parser {
             self.skip_newlines();
             let expr_start = self.current;
 
-            let is_potential_function = matches!(self.current_kind(), TokenKind::LParen)
-                && matches!(
-                    self.peek_non_newline_kind(self.current + 1),
-                    Some(TokenKind::Identifier(_)) | Some(TokenKind::RParen)
-                );
+            // Check if this is a function definition
+            // Functions must have Pattern::Identifier
+            if let Pattern::Identifier(ref name) = pattern {
+                let is_potential_function = matches!(self.current_kind(), TokenKind::LParen)
+                    && matches!(
+                        self.peek_non_newline_kind(self.current + 1),
+                        Some(TokenKind::Identifier(_)) | Some(TokenKind::RParen)
+                    );
 
-            if is_potential_function {
-                let params_start = self.current;
-                self.advance(); // consume '('
-                self.skip_newlines();
-                let params_result = self.parse_parameter_list();
+                if is_potential_function {
+                    let params_start = self.current;
+                    self.advance(); // consume '('
+                    self.skip_newlines();
+                    let params_result = self.parse_parameter_list();
 
-                match params_result {
-                    Ok(params) => {
-                        self.skip_newlines();
-                        match self.expect(TokenKind::RParen, "Expected ')' after parameters") {
-                            Ok(()) => {
-                                self.skip_newlines();
-                                if matches!(self.current_kind(), TokenKind::LBrace) {
-                                    self.advance();
-                                    let body_expressions = self.parse_block_contents()?;
-                                    self.expect(
-                                        TokenKind::RBrace,
-                                        "Expected '}' after function body",
-                                    )?;
-                                    let impure = name.ends_with('!');
-                                    return Ok(Statement::Function(Function {
-                                        name,
-                                        params,
-                                        body: Expression::Block(body_expressions),
-                                        impure,
-                                    }));
-                                } else {
-                                    self.current = expr_start;
+                    match params_result {
+                        Ok(params) => {
+                            self.skip_newlines();
+                            match self.expect(TokenKind::RParen, "Expected ')' after parameters") {
+                                Ok(()) => {
+                                    self.skip_newlines();
+                                    if matches!(self.current_kind(), TokenKind::LBrace) {
+                                        self.advance();
+                                        let body_expressions = self.parse_block_contents()?;
+                                        self.expect(
+                                            TokenKind::RBrace,
+                                            "Expected '}' after function body",
+                                        )?;
+                                        let impure = name.ends_with('!');
+                                        return Ok(Statement::Function(Function {
+                                            name: name.clone(),
+                                            params,
+                                            body: Expression::Block(body_expressions),
+                                            impure,
+                                        }));
+                                    } else {
+                                        self.current = expr_start;
+                                    }
                                 }
+                                Err(err) => return Err(err),
                             }
-                            Err(err) => return Err(err),
                         }
-                    }
-                    Err(err) => {
-                        if self.current != params_start {
-                            return Err(err);
+                        Err(err) => {
+                            if self.current != params_start {
+                                return Err(err);
+                            }
+                            self.current = expr_start;
                         }
-                        self.current = expr_start;
                     }
                 }
             }
@@ -330,12 +423,155 @@ impl Parser {
             self.current = expr_start;
             self.skip_newlines();
             let expr = self.parse_expression()?;
-            return Ok(Statement::Assignment { name, expr });
+            return Ok(Statement::Assignment { pattern, expr });
         }
 
         self.current = start_index;
         let expr = self.parse_expression()?;
         Ok(Statement::Expression(expr))
+    }
+
+    fn try_parse_pattern(&mut self) -> Option<Pattern> {
+        // Try to parse an object pattern { field, ... }
+        if matches!(self.current_kind(), TokenKind::LBrace) {
+            let brace_pos = self.current;
+            self.advance();
+            self.skip_newlines();
+
+            let mut fields = Vec::new();
+
+            // Handle empty object pattern {}
+            if matches!(self.current_kind(), TokenKind::RBrace) {
+                self.advance();
+                return Some(Pattern::Object(fields));
+            }
+
+            loop {
+                // Check for identifier (field name)
+                let field_start = self.current;
+                let field_name = match self.current_kind().clone() {
+                    TokenKind::Identifier(name) => {
+                        self.advance();
+                        name
+                    }
+                    _ => {
+                        // Not an object pattern, reset to before the brace
+                        self.current = brace_pos;
+                        return None;
+                    }
+                };
+
+                self.skip_newlines();
+
+                // Check if this is shorthand { name } or field { name: pattern }
+                if matches!(self.current_kind(), TokenKind::Colon) {
+                    // Field with nested pattern: { name: pattern }
+                    self.advance();
+                    self.skip_newlines();
+                    match self.try_parse_pattern() {
+                        Some(pattern) => {
+                            fields.push(ObjectPatternField::Field {
+                                name: field_name,
+                                pattern,
+                            });
+                        }
+                        None => {
+                            // Not a valid pattern - check if it's a non-pattern token
+                            // (like string literal, number, etc.) which means this is an object expression, not pattern
+                            if matches!(
+                                self.current_kind(),
+                                TokenKind::StringLiteral(_)
+                                    | TokenKind::Number(_)
+                                    | TokenKind::Boolean(_)
+                                    | TokenKind::Null
+                                    | TokenKind::LParen
+                                    | TokenKind::LBracket
+                            ) {
+                                // This is definitely an object expression, not a pattern
+                                self.current = brace_pos;
+                                return None;
+                            }
+                            // Otherwise, reset to before this field attempt
+                            self.current = field_start;
+                            break;
+                        }
+                    }
+                } else {
+                    // Shorthand: { name }
+                    fields.push(ObjectPatternField::Shorthand(field_name));
+                }
+
+                self.skip_newlines();
+
+                if matches!(self.current_kind(), TokenKind::Comma) {
+                    self.advance();
+                    self.skip_newlines();
+                } else {
+                    break;
+                }
+            }
+
+            if matches!(self.current_kind(), TokenKind::RBrace) {
+                self.advance();
+                return Some(Pattern::Object(fields));
+            } else {
+                // Reset if we didn't find closing brace
+                self.current = brace_pos;
+                return None;
+            }
+        }
+
+        // Try to parse a list pattern [pattern, pattern, ...]
+        if matches!(self.current_kind(), TokenKind::LBracket) {
+            let bracket_pos = self.current;
+            self.advance();
+            self.skip_newlines();
+
+            let mut patterns = Vec::new();
+
+            // Handle empty list pattern []
+            if matches!(self.current_kind(), TokenKind::RBracket) {
+                self.advance();
+                return Some(Pattern::List(patterns));
+            }
+
+            loop {
+                match self.try_parse_pattern() {
+                    Some(pattern) => {
+                        patterns.push(pattern);
+                        self.skip_newlines();
+                        if matches!(self.current_kind(), TokenKind::Comma) {
+                            self.advance();
+                            self.skip_newlines();
+                        } else {
+                            break;
+                        }
+                    }
+                    None => {
+                        // If we can't parse a pattern, reset to before the bracket
+                        self.current = bracket_pos;
+                        return None;
+                    }
+                }
+            }
+
+            if matches!(self.current_kind(), TokenKind::RBracket) {
+                self.advance();
+                return Some(Pattern::List(patterns));
+            } else {
+                // Reset if we didn't find closing bracket
+                self.current = bracket_pos;
+                return None;
+            }
+        }
+
+        // Try to parse an identifier pattern
+        if let TokenKind::Identifier(name) = self.current_kind().clone() {
+            self.advance();
+            return Some(Pattern::Identifier(name));
+        }
+
+        None
     }
 
     fn parse_parameter_list(&mut self) -> LangResult<Vec<String>> {
@@ -547,7 +783,15 @@ impl Parser {
         }
 
         loop {
-            elements.push(self.parse_expression()?);
+            // Check for spread operator
+            if matches!(self.current_kind(), TokenKind::Spread) {
+                self.advance();
+                self.skip_newlines();
+                let expr = self.parse_expression()?;
+                elements.push(Expression::Spread(Box::new(expr)));
+            } else {
+                elements.push(self.parse_expression()?);
+            }
             self.skip_newlines();
             if matches!(self.current_kind(), TokenKind::Comma) {
                 self.advance();
@@ -567,6 +811,11 @@ impl Parser {
             TokenKind::Star => BinaryOperator::Mul,
             TokenKind::Slash => BinaryOperator::Div,
             TokenKind::Equal => BinaryOperator::Eq,
+            TokenKind::NotEqual => BinaryOperator::NotEq,
+            TokenKind::LessThan => BinaryOperator::LessThan,
+            TokenKind::LessThanEq => BinaryOperator::LessThanEq,
+            TokenKind::GreaterThan => BinaryOperator::GreaterThan,
+            TokenKind::GreaterThanEq => BinaryOperator::GreaterThanEq,
             TokenKind::Ampersand => BinaryOperator::And,
             TokenKind::Pipe => BinaryOperator::Or,
             other => {
@@ -583,7 +832,12 @@ impl Parser {
         match self.current_kind() {
             TokenKind::Pipe => Some(0),
             TokenKind::Ampersand => Some(1),
-            TokenKind::Equal => Some(2),
+            TokenKind::Equal
+            | TokenKind::NotEqual
+            | TokenKind::LessThan
+            | TokenKind::LessThanEq
+            | TokenKind::GreaterThan
+            | TokenKind::GreaterThanEq => Some(2),
             TokenKind::Plus | TokenKind::Minus => Some(3),
             TokenKind::Star | TokenKind::Slash => Some(4),
             _ => None,
@@ -791,6 +1045,23 @@ impl Parser {
         let mut fields = Vec::new();
 
         loop {
+            // Check for spread operator
+            if matches!(self.current_kind(), TokenKind::Spread) {
+                self.advance();
+                self.skip_newlines();
+                let expr = self.parse_expression()?;
+                fields.push(ObjectField::Spread(expr));
+                self.skip_newlines();
+
+                if matches!(self.current_kind(), TokenKind::Comma) {
+                    self.advance();
+                    self.skip_newlines();
+                    continue;
+                } else {
+                    break;
+                }
+            }
+
             let name = match self.current_kind().clone() {
                 TokenKind::Identifier(name) => {
                     self.advance();
@@ -810,12 +1081,16 @@ impl Parser {
             self.advance();
             self.skip_newlines();
             let value = self.parse_expression()?;
-            fields.push(ObjectField { name, value });
+            fields.push(ObjectField::Field { name, value });
             self.skip_newlines();
 
             if matches!(self.current_kind(), TokenKind::Comma) {
                 self.advance();
                 self.skip_newlines();
+                // Check if there's a trailing comma (next token is closing brace)
+                if matches!(self.current_kind(), TokenKind::RBrace) {
+                    break;
+                }
                 continue;
             }
             break;

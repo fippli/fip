@@ -1,0 +1,20 @@
+// Test array destructuring
+[one, two]: [1, 2, 3, 4]
+
+log!(one)
+log!(two)
+
+// Test with fewer elements than patterns
+[first, second, third]: [10, 20]
+
+log!(first)
+log!(second)
+log!(third)
+
+// Test nested destructuring
+[[a, b], c]: [[1, 2], 3]
+
+log!(a)
+log!(b)
+log!(c)
+

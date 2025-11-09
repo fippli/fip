@@ -1,6 +1,7 @@
 use pulldown_cmark::{html, Event, HeadingLevel, Options, Parser, Tag};
 use std::{
     borrow::Cow,
+    cmp::Ordering,
     collections::HashMap,
     env,
     error::Error,
@@ -33,6 +34,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         return Err("no markdown files found in /syntax".into());
     }
 
+    let spec_order = load_spec_order(&syntax_dir)?;
+
     let mut pages = Vec::new();
     for path in markdown_files {
         let content = fs::read_to_string(&path)?;
@@ -51,7 +54,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         });
     }
 
-    pages.sort_by(|a, b| a.title.cmp(&b.title));
+    let syntax_dir_for_sort = syntax_dir.clone();
+    pages.sort_by(|a, b| page_order(a, b, &syntax_dir_for_sort, &spec_order));
 
     cleanup_existing_html(&docs_dir)?;
 
@@ -98,6 +102,37 @@ fn collect_markdown(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     }
     files.sort();
     Ok(files)
+}
+
+fn load_spec_order(syntax_dir: &Path) -> Result<HashMap<PathBuf, usize>, Box<dyn Error>> {
+    let mut order_map = HashMap::new();
+    order_map.insert(PathBuf::from("index.md"), 0);
+
+    let index_path = syntax_dir.join("index.md");
+    if !index_path.exists() {
+        return Ok(order_map);
+    }
+
+    let content = fs::read_to_string(index_path)?;
+    let mut next_position = 1usize;
+    for line in content.lines() {
+        for (idx, segment) in line.split('`').enumerate() {
+            if idx % 2 != 1 {
+                continue;
+            }
+            let trimmed = segment.trim();
+            if trimmed.starts_with("./") && trimmed.ends_with(".md") {
+                let rel = trimmed.trim_start_matches("./");
+                let rel_path = PathBuf::from(rel);
+                if !order_map.contains_key(&rel_path) {
+                    order_map.insert(rel_path, next_position);
+                    next_position += 1;
+                }
+            }
+        }
+    }
+
+    Ok(order_map)
 }
 
 fn render_markdown(markdown: &str, slug_prefix: &str) -> (String, Option<String>) {
@@ -264,6 +299,32 @@ fn build_full_site_html(pages: &[DocPage]) -> Result<String, Box<dyn Error>> {
     );
 
     Ok(html)
+}
+
+fn page_order(
+    a: &DocPage,
+    b: &DocPage,
+    syntax_dir: &Path,
+    order_map: &HashMap<PathBuf, usize>,
+) -> Ordering {
+    let rel_a = relative_to_syntax(&a.source_path, syntax_dir);
+    let rel_b = relative_to_syntax(&b.source_path, syntax_dir);
+
+    let key_a = order_map.get(&rel_a);
+    let key_b = order_map.get(&rel_b);
+
+    match (key_a, key_b) {
+        (Some(pos_a), Some(pos_b)) => pos_a.cmp(pos_b),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => a.title.cmp(&b.title),
+    }
+}
+
+fn relative_to_syntax(path: &Path, syntax_dir: &Path) -> PathBuf {
+    path.strip_prefix(syntax_dir)
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn html_escape(input: &str) -> Cow<'_, str> {

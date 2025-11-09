@@ -4,8 +4,21 @@ pub struct Program {
 }
 
 #[derive(Debug, Clone)]
+pub enum Pattern {
+    Identifier(String),
+    List(Vec<Pattern>),
+    Object(Vec<ObjectPatternField>),
+}
+
+#[derive(Debug, Clone)]
+pub enum ObjectPatternField {
+    Shorthand(String),                        // { name } - shorthand for { name: name }
+    Field { name: String, pattern: Pattern }, // { name: pattern } - nested destructuring
+}
+
+#[derive(Debug, Clone)]
 pub enum Statement {
-    Assignment { name: String, expr: Expression },
+    Assignment { pattern: Pattern, expr: Expression },
     Function(Function),
     Expression(Expression),
     Use(UseStatement),
@@ -48,12 +61,13 @@ pub enum Expression {
         op: BinaryOperator,
         right: Box<Expression>,
     },
+    Spread(Box<Expression>),
 }
 
 #[derive(Debug, Clone)]
-pub struct ObjectField {
-    pub name: String,
-    pub value: Expression,
+pub enum ObjectField {
+    Field { name: String, value: Expression },
+    Spread(Expression),
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -63,6 +77,11 @@ pub enum BinaryOperator {
     Mul,
     Div,
     Eq,
+    NotEq,
+    LessThan,
+    LessThanEq,
+    GreaterThan,
+    GreaterThanEq,
     And,
     Or,
 }

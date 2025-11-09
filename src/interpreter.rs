@@ -8,8 +8,9 @@ use std::{
 
 use crate::{
     ast::{
-        BinaryOperator, ExportStatement, Expression, Function as FunctionAst, Program, Statement,
-        StringSegment, StringTemplate, UseStatement,
+        BinaryOperator, ExportStatement, Expression, Function as FunctionAst, ObjectField,
+        ObjectPatternField, Pattern, Program, Statement, StringSegment, StringTemplate,
+        UseStatement,
     },
     error::{LangError, LangResult},
     lexer::Lexer,
@@ -606,6 +607,414 @@ mod tests {
         }
         Ok(())
     }
+
+    #[test]
+    fn spread_operator_in_objects() -> LangResult<()> {
+        let source = r#"
+            x: { name: "Jim" }
+            y: { ...x, age: 100 }
+            z: { ...y, age: 75 }
+        "#;
+        let interpreter = run_source(source)?;
+
+        let y = interpreter.global.get("y").expect("y should exist");
+        match y {
+            Value::Object(map) => {
+                let name = map.get("name").expect("name should exist");
+                assert!(matches!(name, Value::String(s) if s == "Jim"));
+                let age = map.get("age").expect("age should exist");
+                assert!(matches!(age, Value::Number(n) if *n == 100));
+            }
+            other => panic!("expected object, got {:?}", other),
+        }
+
+        let z = interpreter.global.get("z").expect("z should exist");
+        match z {
+            Value::Object(map) => {
+                let name = map.get("name").expect("name should exist");
+                assert!(matches!(name, Value::String(s) if s == "Jim"));
+                let age = map.get("age").expect("age should exist");
+                assert!(matches!(age, Value::Number(n) if *n == 75));
+            }
+            other => panic!("expected object, got {:?}", other),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn spread_operator_in_lists() -> LangResult<()> {
+        let source = r#"
+            a: [1, 2, 3]
+            b: [...a, 4, 5]
+            c: [0, ...b]
+        "#;
+        let interpreter = run_source(source)?;
+
+        let b = interpreter.global.get("b").expect("b should exist");
+        match b {
+            Value::List(values) => {
+                let expected = vec![
+                    Value::Number(1),
+                    Value::Number(2),
+                    Value::Number(3),
+                    Value::Number(4),
+                    Value::Number(5),
+                ];
+                assert_eq!(values.len(), expected.len());
+                for (actual, expected_val) in values.iter().zip(expected.iter()) {
+                    assert!(Interpreter::values_equal(actual, expected_val));
+                }
+            }
+            other => panic!("expected list, got {:?}", other),
+        }
+
+        let c = interpreter.global.get("c").expect("c should exist");
+        match c {
+            Value::List(values) => {
+                let expected = vec![
+                    Value::Number(0),
+                    Value::Number(1),
+                    Value::Number(2),
+                    Value::Number(3),
+                    Value::Number(4),
+                    Value::Number(5),
+                ];
+                assert_eq!(values.len(), expected.len());
+                for (actual, expected_val) in values.iter().zip(expected.iter()) {
+                    assert!(Interpreter::values_equal(actual, expected_val));
+                }
+            }
+            other => panic!("expected list, got {:?}", other),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn if_builtin_evaluates_correct_branch() -> LangResult<()> {
+        let source = r#"
+            result-true: if(true, () { "true" }, () { "false" })
+            result-false: if(false, () { "true" }, () { "false" })
+        "#;
+        let interpreter = run_source(source)?;
+
+        let result_true = interpreter
+            .global
+            .get("result-true")
+            .expect("result-true should exist");
+        assert!(matches!(result_true, Value::String(s) if s == "true"));
+
+        let result_false = interpreter
+            .global
+            .get("result-false")
+            .expect("result-false should exist");
+        assert!(matches!(result_false, Value::String(s) if s == "false"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn if_builtin_with_defined() -> LangResult<()> {
+        let source = r#"
+            maybe-value: 12345
+            safe: if(defined?(maybe-value), () { maybe-value }, () { "No value" })
+            
+            missing: null
+            fallback: if(defined?(missing), () { missing }, () { "No value" })
+        "#;
+        let interpreter = run_source(source)?;
+
+        let safe = interpreter.global.get("safe").expect("safe should exist");
+        match safe {
+            Value::Number(n) => assert_eq!(n, 12345),
+            other => panic!("expected number 12345, got {:?}", other),
+        }
+
+        let fallback = interpreter
+            .global
+            .get("fallback")
+            .expect("fallback should exist");
+        assert!(matches!(fallback, Value::String(s) if s == "No value"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn defined_builtin_checks_null() -> LangResult<()> {
+        let source = r#"
+            test-null: null
+            test-value: 42
+            is-null-defined: defined?(test-null)
+            is-value-defined: defined?(test-value)
+        "#;
+        let interpreter = run_source(source)?;
+
+        let is_null_defined = interpreter
+            .global
+            .get("is-null-defined")
+            .expect("is-null-defined should exist");
+        assert!(matches!(is_null_defined, Value::Boolean(false)));
+
+        let is_value_defined = interpreter
+            .global
+            .get("is-value-defined")
+            .expect("is-value-defined should exist");
+        assert!(matches!(is_value_defined, Value::Boolean(true)));
+
+        Ok(())
+    }
+
+    #[test]
+    fn every_builtin_checks_all_elements() -> LangResult<()> {
+        let source = r#"
+            numbers: [2, 2, 2]
+            all-two: every?((n) { n = 2 }, numbers)
+            
+            mixed: [1, 2, 3]
+            all-two-mixed: every?((n) { n = 2 }, mixed)
+            
+            empty: []
+            all-empty: every?((n) { n = 1 }, empty)
+        "#;
+        let interpreter = run_source(source)?;
+
+        let all_two = interpreter
+            .global
+            .get("all-two")
+            .expect("all-two should exist");
+        assert!(matches!(all_two, Value::Boolean(true)));
+
+        let all_two_mixed = interpreter
+            .global
+            .get("all-two-mixed")
+            .expect("all-two-mixed should exist");
+        assert!(matches!(all_two_mixed, Value::Boolean(false)));
+
+        let all_empty = interpreter
+            .global
+            .get("all-empty")
+            .expect("all-empty should exist");
+        assert!(matches!(all_empty, Value::Boolean(true)));
+
+        Ok(())
+    }
+
+    #[test]
+    fn some_builtin_checks_any_element() -> LangResult<()> {
+        let source = r#"
+            numbers: [1, 2, 3]
+            has-two: some?((n) { n = 2 }, numbers)
+            
+            no-match: [1, 3, 5]
+            has-two-no: some?((n) { n = 2 }, no-match)
+            
+            empty: []
+            some-empty: some?((n) { n = 1 }, empty)
+        "#;
+        let interpreter = run_source(source)?;
+
+        let has_two = interpreter
+            .global
+            .get("has-two")
+            .expect("has-two should exist");
+        assert!(matches!(has_two, Value::Boolean(true)));
+
+        let has_two_no = interpreter
+            .global
+            .get("has-two-no")
+            .expect("has-two-no should exist");
+        assert!(matches!(has_two_no, Value::Boolean(false)));
+
+        let some_empty = interpreter
+            .global
+            .get("some-empty")
+            .expect("some-empty should exist");
+        assert!(matches!(some_empty, Value::Boolean(false)));
+
+        Ok(())
+    }
+
+    #[test]
+    fn none_builtin_checks_no_elements() -> LangResult<()> {
+        let source = r#"
+            numbers: [1, 3, 5]
+            no-zero: none?((n) { n = 0 }, numbers)
+            
+            has-zero: [1, 0, 3]
+            no-zero-false: none?((n) { n = 0 }, has-zero)
+            
+            empty: []
+            none-empty: none?((n) { n = 1 }, empty)
+        "#;
+        let interpreter = run_source(source)?;
+
+        let no_zero = interpreter
+            .global
+            .get("no-zero")
+            .expect("no-zero should exist");
+        assert!(matches!(no_zero, Value::Boolean(true)));
+
+        let no_zero_false = interpreter
+            .global
+            .get("no-zero-false")
+            .expect("no-zero-false should exist");
+        assert!(matches!(no_zero_false, Value::Boolean(false)));
+
+        let none_empty = interpreter
+            .global
+            .get("none-empty")
+            .expect("none-empty should exist");
+        assert!(matches!(none_empty, Value::Boolean(true)));
+
+        Ok(())
+    }
+
+    #[test]
+    fn for_each_builtin_iterates_list() -> LangResult<()> {
+        let source = r#"
+            words: ["a", "b", "c"]
+            result: for-each!((word)! { log!(word) }, words)
+        "#;
+        let interpreter = run_source(source)?;
+
+        let result = interpreter
+            .global
+            .get("result")
+            .expect("result should exist");
+        assert!(matches!(result, Value::Null));
+
+        Ok(())
+    }
+
+    #[test]
+    fn array_destructuring_assigns_elements() -> LangResult<()> {
+        let source = r#"
+            [one, two]: [1, 2, 3, 4]
+        "#;
+        let interpreter = run_source(source)?;
+
+        let one = interpreter.global.get("one").expect("one should exist");
+        match one {
+            Value::Number(n) => assert_eq!(n, 1),
+            other => panic!("expected number 1, got {:?}", other),
+        }
+
+        let two = interpreter.global.get("two").expect("two should exist");
+        match two {
+            Value::Number(n) => assert_eq!(n, 2),
+            other => panic!("expected number 2, got {:?}", other),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn array_destructuring_with_fewer_elements() -> LangResult<()> {
+        let source = r#"
+            [first, second, third]: [10, 20]
+        "#;
+        let interpreter = run_source(source)?;
+
+        let first = interpreter.global.get("first").expect("first should exist");
+        match first {
+            Value::Number(n) => assert_eq!(n, 10),
+            other => panic!("expected number 10, got {:?}", other),
+        }
+
+        let second = interpreter
+            .global
+            .get("second")
+            .expect("second should exist");
+        match second {
+            Value::Number(n) => assert_eq!(n, 20),
+            other => panic!("expected number 20, got {:?}", other),
+        }
+
+        let third = interpreter.global.get("third").expect("third should exist");
+        assert!(matches!(third, Value::Null));
+
+        Ok(())
+    }
+
+    #[test]
+    fn nested_array_destructuring() -> LangResult<()> {
+        let source = r#"
+            [[a, b], c]: [[1, 2], 3]
+        "#;
+        let interpreter = run_source(source)?;
+
+        let a = interpreter.global.get("a").expect("a should exist");
+        match a {
+            Value::Number(n) => assert_eq!(n, 1),
+            other => panic!("expected number 1, got {:?}", other),
+        }
+
+        let b = interpreter.global.get("b").expect("b should exist");
+        match b {
+            Value::Number(n) => assert_eq!(n, 2),
+            other => panic!("expected number 2, got {:?}", other),
+        }
+
+        let c = interpreter.global.get("c").expect("c should exist");
+        match c {
+            Value::Number(n) => assert_eq!(n, 3),
+            other => panic!("expected number 3, got {:?}", other),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn object_destructuring_shorthand() -> LangResult<()> {
+        let source = r#"
+            { name, age }: { name: "John", age: 30 }
+        "#;
+        let interpreter = run_source(source)?;
+
+        let name = interpreter.global.get("name").expect("name should exist");
+        assert!(matches!(name, Value::String(s) if s == "John"));
+
+        let age = interpreter.global.get("age").expect("age should exist");
+        match age {
+            Value::Number(n) => assert_eq!(n, 30),
+            other => panic!("expected number 30, got {:?}", other),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn nested_object_destructuring() -> LangResult<()> {
+        let source = r#"
+            { name: { first-name }}: { name: { first-name: "John", last-name: "Doe" } }
+        "#;
+        let interpreter = run_source(source)?;
+
+        let first_name = interpreter
+            .global
+            .get("first-name")
+            .expect("first-name should exist");
+        assert!(matches!(first_name, Value::String(s) if s == "John"));
+
+        Ok(())
+    }
+
+    #[test]
+    fn object_destructuring_missing_field() -> LangResult<()> {
+        let source = r#"
+            { name, age }: { name: "John" }
+        "#;
+        let interpreter = run_source(source)?;
+
+        let name = interpreter.global.get("name").expect("name should exist");
+        assert!(matches!(name, Value::String(s) if s == "John"));
+
+        let age = interpreter.global.get("age").expect("age should exist");
+        assert!(matches!(age, Value::Null));
+
+        Ok(())
+    }
 }
 
 pub struct FunctionValue {
@@ -619,6 +1028,7 @@ pub struct FunctionValue {
 pub struct BuiltinFunction {
     pub name: String,
     pub impure: bool,
+    pub params: Vec<String>, // Parameter names for currying support
     pub func: Rc<dyn Fn(&Interpreter, &[Value]) -> LangResult<Value>>,
 }
 
@@ -639,6 +1049,7 @@ impl Clone for BuiltinFunction {
         Self {
             name: self.name.clone(),
             impure: self.impure,
+            params: self.params.clone(),
             func: Rc::clone(&self.func),
         }
     }
@@ -729,6 +1140,7 @@ impl Interpreter {
         self.add_builtin(BuiltinFunction {
             name: "log!".to_string(),
             impure: true,
+            params: vec!["message".to_string()],
             func: Rc::new(|interpreter, args| {
                 if args.len() != 1 {
                     return Err(LangError::Runtime(
@@ -745,6 +1157,7 @@ impl Interpreter {
         self.add_builtin(BuiltinFunction {
             name: "trace!".to_string(),
             impure: true,
+            params: vec!["label".to_string(), "value".to_string()],
             func: Rc::new(|interpreter, args| {
                 if args.len() != 2 {
                     return Err(LangError::Runtime(
@@ -762,6 +1175,7 @@ impl Interpreter {
         self.add_builtin(BuiltinFunction {
             name: "identity".to_string(),
             impure: false,
+            params: vec!["x".to_string()],
             func: Rc::new(|_, args| {
                 if args.len() != 1 {
                     return Err(LangError::Runtime(
@@ -776,6 +1190,7 @@ impl Interpreter {
         self.add_builtin(BuiltinFunction {
             name: "increment".to_string(),
             impure: false,
+            params: vec!["number".to_string()],
             func: Rc::new(|_, args| {
                 if args.len() != 1 {
                     return Err(LangError::Runtime(
@@ -796,6 +1211,7 @@ impl Interpreter {
         self.add_builtin(BuiltinFunction {
             name: "decrement".to_string(),
             impure: false,
+            params: vec!["number".to_string()],
             func: Rc::new(|_, args| {
                 if args.len() != 1 {
                     return Err(LangError::Runtime(
@@ -816,6 +1232,7 @@ impl Interpreter {
         self.add_builtin(BuiltinFunction {
             name: "map".to_string(),
             impure: false,
+            params: vec!["fn".to_string(), "list".to_string()],
             func: Rc::new(|interpreter, args| {
                 if args.len() != 2 {
                     return Err(LangError::Runtime(
@@ -849,6 +1266,7 @@ impl Interpreter {
         self.add_builtin(BuiltinFunction {
             name: "reduce".to_string(),
             impure: false,
+            params: vec!["fn".to_string(), "init".to_string(), "list".to_string()],
             func: Rc::new(|interpreter, args| {
                 if args.len() != 3 {
                     return Err(LangError::Runtime(
@@ -880,6 +1298,7 @@ impl Interpreter {
         self.add_builtin(BuiltinFunction {
             name: "filter".to_string(),
             impure: false,
+            params: vec!["predicate".to_string(), "list".to_string()],
             func: Rc::new(|interpreter, args| {
                 if args.len() != 2 {
                     return Err(LangError::Runtime(
@@ -925,6 +1344,7 @@ impl Interpreter {
         self.add_builtin(BuiltinFunction {
             name: "add".to_string(),
             impure: false,
+            params: vec!["a".to_string(), "b".to_string()],
             func: Rc::new(|_, args| {
                 if args.len() != 2 {
                     return Err(LangError::Runtime(
@@ -951,6 +1371,7 @@ impl Interpreter {
         self.add_builtin(BuiltinFunction {
             name: "subtract".to_string(),
             impure: false,
+            params: vec!["a".to_string(), "b".to_string()],
             func: Rc::new(|_, args| {
                 if args.len() != 2 {
                     return Err(LangError::Runtime(
@@ -977,6 +1398,7 @@ impl Interpreter {
         self.add_builtin(BuiltinFunction {
             name: "multiply".to_string(),
             impure: false,
+            params: vec!["a".to_string(), "b".to_string()],
             func: Rc::new(|_, args| {
                 if args.len() != 2 {
                     return Err(LangError::Runtime(
@@ -1003,6 +1425,7 @@ impl Interpreter {
         self.add_builtin(BuiltinFunction {
             name: "divide".to_string(),
             impure: false,
+            params: vec!["a".to_string(), "b".to_string()],
             func: Rc::new(|_, args| {
                 if args.len() != 2 {
                     return Err(LangError::Runtime(
@@ -1035,6 +1458,7 @@ impl Interpreter {
         self.add_builtin(BuiltinFunction {
             name: "and?".to_string(),
             impure: false,
+            params: vec!["a".to_string(), "b".to_string()],
             func: Rc::new(|_, args| {
                 if args.len() != 2 {
                     return Err(LangError::Runtime(
@@ -1061,6 +1485,7 @@ impl Interpreter {
         self.add_builtin(BuiltinFunction {
             name: "or?".to_string(),
             impure: false,
+            params: vec!["a".to_string(), "b".to_string()],
             func: Rc::new(|_, args| {
                 if args.len() != 2 {
                     return Err(LangError::Runtime(
@@ -1083,6 +1508,299 @@ impl Interpreter {
                 Ok(Value::Boolean(lhs || rhs))
             }),
         });
+
+        self.add_builtin(BuiltinFunction {
+            name: "every?".to_string(),
+            impure: false,
+            params: vec!["predicate".to_string(), "list".to_string()],
+            func: Rc::new(|interpreter, args| {
+                if args.len() != 2 {
+                    return Err(LangError::Runtime(
+                        "Builtin 'every?' expects 2 arguments (predicate, list)".to_string(),
+                        None,
+                    ));
+                }
+                let predicate = args[0].clone();
+                let list = match &args[1] {
+                    Value::List(items) => items.clone(),
+                    other => {
+                        return Err(LangError::Runtime(
+                            format!(
+                                "Builtin 'every?' expected list as second argument, found {:?}",
+                                other
+                            ),
+                            None,
+                        ))
+                    }
+                };
+                // Returns true for empty list
+                for item in list {
+                    let result =
+                        interpreter.call_callable(predicate.clone(), vec![item], Purity::Pure)?;
+                    match result {
+                        Value::Boolean(true) => continue,
+                        Value::Boolean(false) => return Ok(Value::Boolean(false)),
+                        other => {
+                            return Err(LangError::Runtime(
+                                format!(
+                                    "Predicate passed to 'every?' must return boolean, found {:?}",
+                                    other
+                                ),
+                                None,
+                            ))
+                        }
+                    }
+                }
+                Ok(Value::Boolean(true))
+            }),
+        });
+
+        self.add_builtin(BuiltinFunction {
+            name: "some?".to_string(),
+            impure: false,
+            params: vec!["predicate".to_string(), "list".to_string()],
+            func: Rc::new(|interpreter, args| {
+                if args.len() != 2 {
+                    return Err(LangError::Runtime(
+                        "Builtin 'some?' expects 2 arguments (predicate, list)".to_string(),
+                        None,
+                    ));
+                }
+                let predicate = args[0].clone();
+                let list = match &args[1] {
+                    Value::List(items) => items.clone(),
+                    other => {
+                        return Err(LangError::Runtime(
+                            format!(
+                                "Builtin 'some?' expected list as second argument, found {:?}",
+                                other
+                            ),
+                            None,
+                        ))
+                    }
+                };
+                // Returns false for empty list
+                for item in list {
+                    let result =
+                        interpreter.call_callable(predicate.clone(), vec![item], Purity::Pure)?;
+                    match result {
+                        Value::Boolean(true) => return Ok(Value::Boolean(true)),
+                        Value::Boolean(false) => continue,
+                        other => {
+                            return Err(LangError::Runtime(
+                                format!(
+                                    "Predicate passed to 'some?' must return boolean, found {:?}",
+                                    other
+                                ),
+                                None,
+                            ))
+                        }
+                    }
+                }
+                Ok(Value::Boolean(false))
+            }),
+        });
+
+        self.add_builtin(BuiltinFunction {
+            name: "none?".to_string(),
+            impure: false,
+            params: vec!["predicate".to_string(), "list".to_string()],
+            func: Rc::new(|interpreter, args| {
+                if args.len() != 2 {
+                    return Err(LangError::Runtime(
+                        "Builtin 'none?' expects 2 arguments (predicate, list)".to_string(),
+                        None,
+                    ));
+                }
+                let predicate = args[0].clone();
+                let list = match &args[1] {
+                    Value::List(items) => items.clone(),
+                    other => {
+                        return Err(LangError::Runtime(
+                            format!(
+                                "Builtin 'none?' expected list as second argument, found {:?}",
+                                other
+                            ),
+                            None,
+                        ))
+                    }
+                };
+                // Returns true for empty list
+                for item in list {
+                    let result =
+                        interpreter.call_callable(predicate.clone(), vec![item], Purity::Pure)?;
+                    match result {
+                        Value::Boolean(false) => continue,
+                        Value::Boolean(true) => return Ok(Value::Boolean(false)),
+                        other => {
+                            return Err(LangError::Runtime(
+                                format!(
+                                    "Predicate passed to 'none?' must return boolean, found {:?}",
+                                    other
+                                ),
+                                None,
+                            ))
+                        }
+                    }
+                }
+                Ok(Value::Boolean(true))
+            }),
+        });
+
+        self.add_builtin(BuiltinFunction {
+            name: "defined?".to_string(),
+            impure: false,
+            params: vec!["value".to_string()],
+            func: Rc::new(|_, args| {
+                if args.len() != 1 {
+                    return Err(LangError::Runtime(
+                        "Builtin 'defined?' expects exactly 1 argument".to_string(),
+                        None,
+                    ));
+                }
+                Ok(Value::Boolean(!matches!(args[0], Value::Null)))
+            }),
+        });
+
+        self.add_builtin(BuiltinFunction {
+            name: "if".to_string(),
+            impure: false,
+            params: vec!["condition".to_string(), "then-fn".to_string(), "else-fn".to_string()],
+            func: Rc::new(|interpreter, args| {
+                if args.len() != 3 {
+                    return Err(LangError::Runtime(
+                        "Builtin 'if' expects 3 arguments (condition, then-fn, else-fn)".to_string(),
+                        None,
+                    ));
+                }
+                let condition = match &args[0] {
+                    Value::Boolean(b) => *b,
+                    other => {
+                        return Err(LangError::Runtime(
+                            format!(
+                                "Builtin 'if' requires boolean condition, found {:?}",
+                                other
+                            ),
+                            None,
+                        ))
+                    }
+                };
+                let then_fn = match &args[1] {
+                    Value::Function(f) => f.clone(),
+                    Value::Builtin(_) => {
+                        return Err(LangError::Runtime(
+                            "Builtin 'if' requires function as second argument (then-fn)".to_string(),
+                            None,
+                        ))
+                    }
+                    other => {
+                        return Err(LangError::Runtime(
+                            format!(
+                                "Builtin 'if' requires function as second argument, found {:?}",
+                                other
+                            ),
+                            None,
+                        ))
+                    }
+                };
+                let else_fn = match &args[2] {
+                    Value::Function(f) => f.clone(),
+                    Value::Builtin(_) => {
+                        return Err(LangError::Runtime(
+                            "Builtin 'if' requires function as third argument (else-fn)".to_string(),
+                            None,
+                        ))
+                    }
+                    other => {
+                        return Err(LangError::Runtime(
+                            format!(
+                                "Builtin 'if' requires function as third argument, found {:?}",
+                                other
+                            ),
+                            None,
+                        ))
+                    }
+                };
+                // Check that functions take zero arguments (thunks)
+                if then_fn.params.len() != 0 {
+                    return Err(LangError::Runtime(
+                        format!(
+                            "Builtin 'if' requires zero-argument function as then-fn, found function with {} parameters",
+                            then_fn.params.len()
+                        ),
+                        None,
+                    ));
+                }
+                if else_fn.params.len() != 0 {
+                    return Err(LangError::Runtime(
+                        format!(
+                            "Builtin 'if' requires zero-argument function as else-fn, found function with {} parameters",
+                            else_fn.params.len()
+                        ),
+                        None,
+                    ));
+                }
+                // Evaluate only the branch that matches the condition
+                if condition {
+                    interpreter.call_callable(Value::Function(then_fn), vec![], Purity::Pure)
+                } else {
+                    interpreter.call_callable(Value::Function(else_fn), vec![], Purity::Pure)
+                }
+            }),
+        });
+
+        self.add_builtin(BuiltinFunction {
+            name: "for-each!".to_string(),
+            impure: true,
+            params: vec!["fn".to_string(), "list".to_string()],
+            func: Rc::new(|interpreter, args| {
+                if args.len() != 2 {
+                    return Err(LangError::Runtime(
+                        "Builtin 'for-each!' expects 2 arguments (fn, list)".to_string(),
+                        None,
+                    ));
+                }
+                let func = args[0].clone();
+                let list = match &args[1] {
+                    Value::List(items) => items.clone(),
+                    other => {
+                        return Err(LangError::Runtime(
+                            format!(
+                                "Builtin 'for-each!' expected list as second argument, found {:?}",
+                                other
+                            ),
+                            None,
+                        ))
+                    }
+                };
+                // Verify the function is impure
+                let is_impure = match &func {
+                    Value::Function(f) => f.impure,
+                    Value::Builtin(b) => b.impure,
+                    other => {
+                        return Err(LangError::Runtime(
+                            format!(
+                            "Builtin 'for-each!' requires function as first argument, found {:?}",
+                            other
+                        ),
+                            None,
+                        ))
+                    }
+                };
+                if !is_impure {
+                    return Err(LangError::Runtime(
+                        "Builtin 'for-each!' requires impure function (marked with '!')"
+                            .to_string(),
+                        None,
+                    ));
+                }
+                // Iterate through list and call function for each element
+                for item in list {
+                    let _ = interpreter.call_callable(func.clone(), vec![item], Purity::Impure)?;
+                }
+                Ok(Value::Null)
+            }),
+        });
     }
 
     fn add_builtin(&mut self, builtin: BuiltinFunction) {
@@ -1101,9 +1819,9 @@ impl Interpreter {
 
     fn eval_statement(&self, statement: &Statement, env: Rc<Environment>) -> LangResult<()> {
         match statement {
-            Statement::Assignment { name, expr } => {
+            Statement::Assignment { pattern, expr } => {
                 let value = self.eval_expression(expr, Rc::clone(&env), Purity::Impure)?;
-                env.define(name.clone(), value)
+                self.destructure_pattern(pattern, value, Rc::clone(&env))
             }
             Statement::Expression(expr) => {
                 let _ = self.eval_expression(expr, Rc::clone(&env), Purity::Impure)?;
@@ -1147,6 +1865,79 @@ impl Interpreter {
             Statement::Export(_export_stmt) => {
                 // Export statements are handled during module evaluation
                 // They mark bindings for export but don't do anything at statement level
+                Ok(())
+            }
+        }
+    }
+
+    fn destructure_pattern(
+        &self,
+        pattern: &Pattern,
+        value: Value,
+        env: Rc<Environment>,
+    ) -> LangResult<()> {
+        match pattern {
+            Pattern::Identifier(name) => env.define(name.clone(), value),
+            Pattern::List(patterns) => {
+                let list = match value {
+                    Value::List(items) => items,
+                    other => {
+                        return Err(LangError::Runtime(
+                            format!(
+                                "Cannot destructure non-list value {:?} with list pattern",
+                                other
+                            ),
+                            None,
+                        ))
+                    }
+                };
+
+                // Match patterns to list elements
+                for (i, pattern) in patterns.iter().enumerate() {
+                    let element = if i < list.len() {
+                        list[i].clone()
+                    } else {
+                        // If there are fewer elements than patterns, assign null
+                        Value::Null
+                    };
+                    self.destructure_pattern(pattern, element, Rc::clone(&env))?;
+                }
+
+                Ok(())
+            }
+            Pattern::Object(fields) => {
+                let object = match value {
+                    Value::Object(map) => map,
+                    other => {
+                        return Err(LangError::Runtime(
+                            format!(
+                                "Cannot destructure non-object value {:?} with object pattern",
+                                other
+                            ),
+                            None,
+                        ))
+                    }
+                };
+
+                // Match patterns to object fields
+                for field in fields {
+                    match field {
+                        ObjectPatternField::Shorthand(name) => {
+                            // Shorthand: { name } assigns name = object.name
+                            let field_value =
+                                object.get(name.as_str()).cloned().unwrap_or(Value::Null);
+                            env.define(name.clone(), field_value)?;
+                        }
+                        ObjectPatternField::Field { name, pattern } => {
+                            // Field with nested pattern: { name: pattern }
+                            // Get the value from the object field and destructure it
+                            let field_value =
+                                object.get(name.as_str()).cloned().unwrap_or(Value::Null);
+                            self.destructure_pattern(pattern, field_value, Rc::clone(&env))?;
+                        }
+                    }
+                }
+
                 Ok(())
             }
         }
@@ -1202,27 +1993,78 @@ impl Interpreter {
             Expression::Object(fields) => {
                 let mut map = BTreeMap::new();
                 for field in fields {
-                    if map.contains_key(&field.name) {
-                        return Err(LangError::Runtime(
-                            format!("Duplicate key '{}' in object literal", field.name),
-                            None,
-                        ));
+                    match field {
+                        ObjectField::Field { name, value } => {
+                            let field_value =
+                                self.eval_expression(&value, Rc::clone(&env), purity)?;
+                            map.insert(name.clone(), field_value);
+                        }
+                        ObjectField::Spread(expr) => {
+                            let spread_value =
+                                self.eval_expression(expr, Rc::clone(&env), purity)?;
+                            match spread_value {
+                                Value::Object(spread_map) => {
+                                    // Spread all fields from the object
+                                    for (key, val) in spread_map {
+                                        map.insert(key, val);
+                                    }
+                                }
+                                other => {
+                                    return Err(LangError::Runtime(
+                                        format!(
+                                            "Spread operator expects an object, found {:?}",
+                                            other
+                                        ),
+                                        None,
+                                    ));
+                                }
+                            }
+                        }
                     }
-                    let value = self.eval_expression(&field.value, Rc::clone(&env), purity)?;
-                    map.insert(field.name.clone(), value);
                 }
                 Ok(Value::Object(map))
             }
             Expression::List(elements) => {
                 let mut values = Vec::with_capacity(elements.len());
                 for element in elements {
-                    values.push(self.eval_expression(element, Rc::clone(&env), purity)?);
+                    match element {
+                        Expression::Spread(expr) => {
+                            let spread_value =
+                                self.eval_expression(expr, Rc::clone(&env), purity)?;
+                            match spread_value {
+                                Value::List(spread_list) => {
+                                    // Spread all elements from the list
+                                    values.extend(spread_list);
+                                }
+                                other => {
+                                    return Err(LangError::Runtime(
+                                        format!(
+                                            "Spread operator expects a list, found {:?}",
+                                            other
+                                        ),
+                                        None,
+                                    ));
+                                }
+                            }
+                        }
+                        other => {
+                            values.push(self.eval_expression(other, Rc::clone(&env), purity)?);
+                        }
+                    }
                 }
                 Ok(Value::List(values))
             }
             Expression::PropertyAccess { object, property } => {
                 let target = self.eval_expression(object, Rc::clone(&env), purity)?;
                 self.eval_property_access(target, property)
+            }
+            Expression::Spread(_) => {
+                // Spread expressions are only valid inside objects and lists
+                // This should not be reached in normal evaluation
+                Err(LangError::Runtime(
+                    "Spread operator can only be used inside object or list literals".to_string(),
+                    None,
+                ))
             }
             Expression::Identifier(name) => env.get(name).ok_or_else(|| {
                 LangError::Runtime(format!("Undefined identifier '{}'", name), None)
@@ -1318,6 +2160,14 @@ impl Interpreter {
                 }
             }
             BinaryOperator::Eq => self.eval_equality(left, right),
+            BinaryOperator::NotEq => {
+                let result = !Self::values_equal(&left, &right);
+                Ok(Value::Boolean(result))
+            }
+            BinaryOperator::LessThan => self.eval_comparison(left, right, |l, r| l < r),
+            BinaryOperator::LessThanEq => self.eval_comparison(left, right, |l, r| l <= r),
+            BinaryOperator::GreaterThan => self.eval_comparison(left, right, |l, r| l > r),
+            BinaryOperator::GreaterThanEq => self.eval_comparison(left, right, |l, r| l >= r),
             BinaryOperator::And => self.eval_logical("and", left, right, true),
             BinaryOperator::Or => self.eval_logical("or", left, right, false),
         }
@@ -1367,6 +2217,14 @@ impl Interpreter {
     fn eval_equality(&self, left: Value, right: Value) -> LangResult<Value> {
         let result = Self::values_equal(&left, &right);
         Ok(Value::Boolean(result))
+    }
+
+    fn eval_comparison<F>(&self, left: Value, right: Value, cmp: F) -> LangResult<Value>
+    where
+        F: FnOnce(i64, i64) -> bool,
+    {
+        let (l, r) = self.expect_numbers("comparison", left, right)?;
+        Ok(Value::Boolean(cmp(l, r)))
     }
 
     fn eval_logical(
@@ -1431,6 +2289,80 @@ impl Interpreter {
     fn call_callable(&self, callee: Value, args: Vec<Value>, purity: Purity) -> LangResult<Value> {
         match callee {
             Value::Function(func) => {
+                // Check if this is a curried builtin function
+                if let (Some(captured_args_value), Some(builtin_value)) = (
+                    func.env.get("__curried_args__"),
+                    func.env.get("__curried_builtin__"),
+                ) {
+                    // This is a curried builtin function
+                    let captured_args = match captured_args_value {
+                        Value::List(args) => args,
+                        _ => {
+                            return Err(LangError::Runtime(
+                                "Internal error: invalid curried builtin state".to_string(),
+                                None,
+                            ));
+                        }
+                    };
+
+                    let builtin = match builtin_value {
+                        Value::Builtin(b) => b,
+                        _ => {
+                            return Err(LangError::Runtime(
+                                "Internal error: invalid builtin in curried function".to_string(),
+                                None,
+                            ));
+                        }
+                    };
+
+                    // Combine captured args with new args
+                    let mut combined = captured_args;
+                    combined.extend(args);
+
+                    // Check if we have enough arguments now
+                    if combined.len() < builtin.params.len() {
+                        // Still not enough - create another curried function
+                        let remaining_params = builtin.params[combined.len()..].to_vec();
+                        let curried_env = Environment::new(None);
+                        curried_env.define(
+                            "__curried_builtin__".to_string(),
+                            Value::Builtin(Rc::clone(&builtin)),
+                        )?;
+                        curried_env
+                            .define("__curried_args__".to_string(), Value::List(combined))?;
+
+                        let curried_func = FunctionValue {
+                            name: format!("{} (curried)", builtin.name),
+                            params: remaining_params,
+                            body: Expression::Identifier("__placeholder__".to_string()),
+                            env: curried_env,
+                            impure: builtin.impure,
+                        };
+
+                        return Ok(Value::Function(Rc::new(curried_func)));
+                    }
+
+                    // Now we have enough arguments - call the builtin
+                    if builtin.impure && !purity.allow_impure() {
+                        return Err(LangError::Runtime(
+                            format!(
+                                "Cannot call impure builtin '{}' from pure context",
+                                builtin.name
+                            ),
+                            None,
+                        ));
+                    }
+
+                    let result = (builtin.func)(self, &combined)?;
+                    if builtin.name.ends_with('?') && !matches!(result, Value::Boolean(_)) {
+                        return Err(LangError::Runtime(
+                            format!("Builtin '{}' must return a boolean value", builtin.name),
+                            None,
+                        ));
+                    }
+                    return Ok(result);
+                }
+
                 // Check if this is a curried function (has captured args)
                 let (original_func, combined_args) = if let Some(captured_args_value) =
                     func.env.get("__curried_args__")
@@ -1589,6 +2521,37 @@ impl Interpreter {
                         None,
                     ));
                 }
+
+                // Handle currying for builtin functions
+                if args.len() < builtin.params.len() {
+                    // Create a curried function that captures the provided arguments
+                    let captured_args = args;
+                    let remaining_params = builtin.params[captured_args.len()..].to_vec();
+
+                    // Create an environment for the curried function
+                    let curried_env = Environment::new(None);
+
+                    // Store the original builtin and captured args
+                    curried_env.define(
+                        "__curried_builtin__".to_string(),
+                        Value::Builtin(Rc::clone(&builtin)),
+                    )?;
+                    curried_env
+                        .define("__curried_args__".to_string(), Value::List(captured_args))?;
+
+                    // Create a curried function that will combine args when called
+                    let curried_func = FunctionValue {
+                        name: format!("{} (curried)", builtin.name),
+                        params: remaining_params,
+                        body: Expression::Identifier("__placeholder__".to_string()), // Will be handled specially
+                        env: curried_env,
+                        impure: builtin.impure,
+                    };
+
+                    return Ok(Value::Function(Rc::new(curried_func)));
+                }
+
+                // Call the builtin with all required arguments
                 let result = (builtin.func)(self, &args)?;
                 if builtin.name.ends_with('?') && !matches!(result, Value::Boolean(_)) {
                     return Err(LangError::Runtime(
@@ -1631,12 +2594,14 @@ impl Interpreter {
                 .find_map(|expr| Self::find_impure_call(expr)),
             Expression::Lambda { body, .. } => Self::find_impure_call(body.as_ref()),
             Expression::String(template) => Self::find_impure_call_in_template(template),
-            Expression::Object(fields) => fields
-                .iter()
-                .find_map(|field| Self::find_impure_call(&field.value)),
+            Expression::Object(fields) => fields.iter().find_map(|field| match field {
+                ObjectField::Field { value, .. } => Self::find_impure_call(value),
+                ObjectField::Spread(expr) => Self::find_impure_call(expr),
+            }),
             Expression::List(elements) => elements
                 .iter()
                 .find_map(|expr| Self::find_impure_call(expr)),
+            Expression::Spread(expr) => Self::find_impure_call(expr.as_ref()),
             Expression::PropertyAccess { object, .. } => Self::find_impure_call(object),
             Expression::Boolean(_) | Expression::Number(_) | Expression::Null => None,
         }
