@@ -1,0 +1,4 @@
+use sum from "sum"
+
+log!("== Imports ==")
+log!(sum(2, 3))

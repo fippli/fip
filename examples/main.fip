@@ -1,0 +1,12 @@
+log!("Running FIP examples...")
+
+log!("Note: Each example file is standalone. Run them individually:")
+log!("  fip examples/basics.fip")
+log!("  fip examples/functions.fip")
+log!("  fip examples/collections.fip")
+log!("  fip examples/destructuring.fip")
+log!("  fip examples/control-flow.fip")
+log!("  fip examples/effects.fip")
+log!("  fip examples/predicates.fip")
+log!("  fip examples/spread.fip")
+log!("  fip examples/imports.fip")

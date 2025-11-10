@@ -1,0 +1,26 @@
+log!("== Object Destructuring ==")
+
+{ name, age }: { name: "John", age: 30 }
+log!(name)
+log!(age)
+
+{ profile: { city, country }}: {
+  profile: {
+    city: "Oslo",
+    country: "Norway"
+  }
+}
+log!(city)
+log!(country)
+
+log!("== List Destructuring ==")
+
+[first, second, third]: [10, 20, 30]
+log!(first)
+log!(second)
+log!(third)
+
+[[inner-first, inner-second], last]: [[1, 2], 3]
+log!(inner-first)
+log!(inner-second)
+log!(last)
