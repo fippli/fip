@@ -1112,6 +1112,7 @@ pub struct Interpreter {
 }
 
 impl Interpreter {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         let global = Environment::new(None);
         let mut interpreter = Self {

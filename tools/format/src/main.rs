@@ -1,7 +1,8 @@
 use std::{env, fs, io};
 
 use fippli_lang::ast::{
-    BinaryOperator, Expression, Function, Program, Statement, StringSegment, UseStatement,
+    BinaryOperator, Expression, Function, ObjectField, ObjectPatternField, Pattern, Program,
+    Statement, StringSegment, UseStatement,
 };
 use fippli_lang::lexer::Lexer;
 use fippli_lang::parser::Parser;
@@ -38,13 +39,40 @@ impl Formatter {
 
     fn format_statement(&mut self, stmt: &Statement) -> String {
         match stmt {
-            Statement::Assignment { name, expr } => {
-                format!("{}: {}", name, self.format_expression(expr))
+            Statement::Assignment { pattern, expr } => {
+                format!(
+                    "{}: {}",
+                    self.format_pattern(pattern),
+                    self.format_expression(expr)
+                )
             }
             Statement::Function(func) => self.format_function(func),
             Statement::Expression(expr) => self.format_expression(expr),
             Statement::Use(use_stmt) => self.format_use_statement(use_stmt),
             Statement::Export(export) => format!("export {}", export.name),
+        }
+    }
+
+    fn format_pattern(&mut self, pattern: &Pattern) -> String {
+        match pattern {
+            Pattern::Identifier(name) => name.clone(),
+            Pattern::List(patterns) => {
+                let formatted: Vec<String> =
+                    patterns.iter().map(|p| self.format_pattern(p)).collect();
+                format!("[{}]", formatted.join(", "))
+            }
+            Pattern::Object(fields) => {
+                let formatted: Vec<String> = fields
+                    .iter()
+                    .map(|f| match f {
+                        ObjectPatternField::Shorthand(name) => name.clone(),
+                        ObjectPatternField::Field { name, pattern } => {
+                            format!("{}: {}", name, self.format_pattern(pattern))
+                        }
+                    })
+                    .collect();
+                format!("{{ {} }}", formatted.join(", "))
+            }
         }
     }
 
@@ -130,13 +158,18 @@ impl Formatter {
                 self.indent_level += 1;
                 let formatted: Vec<String> = fields
                     .iter()
-                    .map(|f| {
-                        format!(
-                            "{}{}: {}",
-                            self.indent(),
-                            f.name,
-                            self.format_expression(&f.value)
-                        )
+                    .map(|f| match f {
+                        ObjectField::Field { name, value } => {
+                            format!(
+                                "{}{}: {}",
+                                self.indent(),
+                                name,
+                                self.format_expression(value)
+                            )
+                        }
+                        ObjectField::Spread(expr) => {
+                            format!("{}...{}", self.indent(), self.format_expression(expr))
+                        }
                     })
                     .collect();
                 self.indent_level = old_indent;
@@ -146,8 +179,15 @@ impl Formatter {
                 if elements.is_empty() {
                     return "[]".to_string();
                 }
-                let formatted: Vec<String> =
-                    elements.iter().map(|e| self.format_expression(e)).collect();
+                let formatted: Vec<String> = elements
+                    .iter()
+                    .map(|e| match e {
+                        Expression::Spread(expr) => {
+                            format!("...{}", self.format_expression(expr.as_ref()))
+                        }
+                        other => self.format_expression(other),
+                    })
+                    .collect();
                 format!("[{}]", formatted.join(", "))
             }
             Expression::Call { callee, args } => {
@@ -168,10 +208,18 @@ impl Formatter {
                     BinaryOperator::Mul => "*",
                     BinaryOperator::Div => "/",
                     BinaryOperator::Eq => "=",
+                    BinaryOperator::NotEq => "≠",
+                    BinaryOperator::LessThan => "<",
+                    BinaryOperator::LessThanEq => "<=",
+                    BinaryOperator::GreaterThan => ">",
+                    BinaryOperator::GreaterThanEq => ">=",
                     BinaryOperator::And => "&",
                     BinaryOperator::Or => "|",
                 };
                 format!("{} {} {}", left_str, op_str, right_str)
+            }
+            Expression::Spread(expr) => {
+                format!("...{}", self.format_expression(expr.as_ref()))
             }
         }
     }
