@@ -1,0 +1,87 @@
+---
+name: syntax-documentation-structure
+version: 1
+owner: docs
+status: active
+priority: P1
+appliesTo:
+  globs: ["syntax/**/*.md"]
+  languages: ["md"]
+triggers:
+  - creating syntax documentation
+  - updating syntax documentation
+alwaysApply: true
+description: >
+  Keep every syntax reference page in a uniform shape so contributors and automation can rely on predictable sections, terminology, and examples.
+
+instructions:
+  must:
+    - Start the file with a single # Title followed by a 2–4 sentence overview paragraph.
+    - Use ## headings for each major section and follow the Signature → Behavior → Implementation Notes (optional) → Example pattern for reference entries.
+    - Provide at least one fenced ```fip``` example block for each documented construct, and include the evaluated result on the line immediately after the snippet using the form `// -> <value>`.
+    - Leave a blank line between headings, paragraphs, lists, and code fences, and end the file with a trailing newline.
+  should:
+    - Order sections from general concepts to specific references, keeping sibling entries alphabetical or by execution order.
+    - Link to related spec pages using relative Markdown links such as [functions](./functions.md).
+  avoid:
+    - Introducing additional H1 headings or skipping directly from ## to ####.
+    - Mixing inconsistent terminology (e.g., alternating between “argument” and “parameter” in the same entry).
+
+examples:
+  good: |
+    # Functions
+
+    Functions describe how FIP evaluates reusable blocks of code. This page outlines declaration syntax, purity markers, and standard helpers.
+
+    ## map
+    **Signature** `map: (fn, list) -> list`
+    **Behavior** Applies `fn` left-to-right over `list`, returning a new list without mutating the input.
+    **Example**
+    ```fip
+    map((n) { n + 1 }, [1, 2])
+    // -> [2, 3]
+    ```
+  bad: |
+    # Functions
+    # Extra Heading
+
+    map: applies fn over list.
+
+    ```fip
+    map((n) { n + 1 }, [1, 2])
+    ```
+
+references:
+  - text: Documentation build script
+    url: https://github.com/fippli/fip/blob/main/scripts/build-docs.sh
+  - text: Syntax index
+    url: https://github.com/fippli/fip/blob/main/syntax/index.md
+
+rationale: >
+  Consistent structure keeps the language reference scannable, simplifies automated doc builds, and gives tooling unambiguous cues when generating or updating syntax pages.
+
+complianceChecklist:
+  - [ ] All required frontmatter fields are present and non-empty.
+  - [ ] Scope clearly defined via `appliesTo.globs` and `appliesTo.languages`.
+  - [ ] At least one good example and one bad example are provided.
+  - [ ] `instructions.must/should/avoid` contain unambiguous bullets.
+  - [ ] `rationale` explains tradeoffs and intent.
+---
+
+# Syntax Documentation Conventions
+
+## Intent
+
+Standardize every file in `syntax/` so contributors and tooling know exactly how to describe new language features. This rule ensures each page reads the same way, whether it documents operators, functions, or async behavior.
+
+## Context
+
+Applies to the FIP language specification stored in `syntax/**/*.md`. These pages feed the generated documentation site and guide runtime implementations.
+
+## How to Comply
+
+1. Create or review the page intro: single H1 plus an overview paragraph.
+2. Lay out major sections with `##` headings from high level to detailed references.
+3. For every construct, add Signature, Behavior, optional Implementation Notes, and Example subsections.
+4. Format examples as runnable ` ```fip ` code blocks with minimal scaffolding, and add the evaluated result on the next line using `// -> <value>`.
+5. Cross-link related material using relative Markdown links and run `scripts/build-docs.sh` after substantial edits.

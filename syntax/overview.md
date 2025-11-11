@@ -11,8 +11,13 @@ FIP programs are sequences of expressions evaluated from top to bottom. Each bin
 ```fip
 // hello.fip
 name: "Filip"
+// -> "Filip"
+
 message: "Hello, <name>!"
+// -> "Hello, Filip!"
+
 log!(message)
+// -> null
 ```
 
 ## Evaluation model
@@ -27,8 +32,13 @@ Functions follow `fn-name: (arg1, arg2) { body }`. Multiple parameters are synta
 
 ```fip
 add: (x, y) { x + y }
+// -> <function>
+
 add-one: add(1)
-add-one(4) // 5
+// -> <function awaiting y>
+
+add-one(4)
+// -> 5
 ```
 
 Anonymous functions drop the name but keep the same parameter and body structure: `(x) { x + 1 }`.
@@ -45,10 +55,13 @@ Single-line comments start with `//` and continue to the end of the line. There 
 ```fip
 // Print each number after doubling it
 numbers: [1, 2, 3]
+// -> [1, 2, 3]
+
 for-each!((n)! {
   doubled: n * 2
   log!(doubled)
 }, numbers)
+// -> null
 ```
 
 ## Modules and imports
@@ -57,7 +70,9 @@ Use `use` statements to pull definitions from other files. Relative imports reso
 
 ```fip
 use math.add from "./lib/math"
+
 result: add(2, 3)
+// -> 5
 ```
 
 ## Putting it together
@@ -67,13 +82,21 @@ A typical program weaves bindings, function calls, and composable blocks:
 ```fip
 // Calculate the total cost with tax and log the steps
 tax-rate: 0.25
+// -> 0.25
+
 items: [10, 20, 40]
+// -> [10, 20, 40]
 
 subtotal: items
   reduce((total, price) { total + price }, 0)
+// -> 70
 
 total: subtotal * (1 + tax-rate)
-trace!("subtotal", subtotal)
-trace!("total", total)
-```
+// -> 87.5
 
+trace!("subtotal", subtotal)
+// -> 70
+
+trace!("total", total)
+// -> 87.5
+```

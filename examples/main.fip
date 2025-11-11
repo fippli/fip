@@ -10,3 +10,4 @@ log!("  fip examples/effects.fip")
 log!("  fip examples/predicates.fip")
 log!("  fip examples/spread.fip")
 log!("  fip examples/imports.fip")
+

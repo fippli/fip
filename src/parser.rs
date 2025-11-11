@@ -92,7 +92,7 @@ impl Parser {
                                 self.find_identifier_in_statement(statement_start, name);
                             return Err(self.error_at_location(
                                 error_location,
-                                format!("Cannot redefine immutable binding '{}'", name),
+                                format!("Mutation error: trying to mutate binding {}", name),
                             ));
                         }
                         defined_names.insert(name.clone());

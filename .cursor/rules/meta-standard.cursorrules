@@ -1,0 +1,112 @@
+# Rule: Meta — Standardize Cursor Rule Structure
+
+## Purpose
+Ensure every **new or updated rule** produced by Cursor follows a consistent, fully-specified structure with required fields, clear scope, concrete examples, and a compliance checklist.
+
+## Applies To
+- Any prompt where the user asks to **create**, **revise**, or **extend** a Cursor rule.
+- Any file in `.cursor/rules/**/*.{md,mdc,cursorrules}`.
+
+## When To Apply
+- The user asks for a “rule”, “cursor rule”, “rule file”, ".mdc rule", or ".cursorrules".
+- The task involves generating guidance that should be enforced across a codebase.
+
+## Output Contract (Enforced)
+When generating a rule, Cursor **must** output **exactly one** fenced block that contains:
+1) A **YAML frontmatter** schema (all required fields present).
+2) A **Markdown body** with specific sections.
+3) At least **one good** and **one bad** example.
+4) A **Compliance Checklist** tick-box list.
+5) No extra commentary outside the fenced block.
+
+If any required field is missing, **do not produce the rule**; instead, **produce a single paragraph** explaining which field(s) are missing, and then **re-emit** the rule with the missing fields populated.
+
+## Required Frontmatter Fields
+- `name`: kebab-case unique identifier (e.g., `function-composition-structure`)
+- `version`: integer starting at `1`
+- `owner`: team or person responsible (e.g., `frontend-platform`)
+- `status`: one of `draft`, `active`, `deprecated`
+- `priority`: one of `P1`, `P2`, `P3`
+- `appliesTo.globs`: array of file globs (e.g., `["src/**/*.tsx"]`)
+- `appliesTo.languages`: array of language tags (e.g., `["ts","tsx"]`)
+- `triggers`: array describing when the rule applies (e.g., `["creating new files","editing existing files"]`)
+- `alwaysApply`: boolean
+- `description`: short purpose statement (single paragraph)
+- `instructions.must`: list of mandatory directives
+- `instructions.should`: list of recommended directives
+- `instructions.avoid`: list of anti-patterns
+- `examples.good`: code block (or multi-line string)
+- `examples.bad`: code block (or multi-line string)
+- `references`: array of `{ text, url }` pairs (can be empty but present)
+- `rationale`: brief “why this exists”
+- `complianceChecklist`: array of items that must be true before accepting the rule
+
+## Style Rules
+- Use **active voice**, concise sentences, and unambiguous verbs (must/should/avoid).
+- Keep frontmatter keys **exactly** as shown.
+- Keep rules ≤ 200 lines where possible.
+- Prefer specific file globs over broad ones.
+- Examples must be minimal but complete enough to compile/run where relevant.
+
+## Template (Cursor must fill every placeholder)
+```md
+---
+name: <kebab-case-unique-name>
+version: 1
+owner: <team-or-person>
+status: draft
+priority: P2
+appliesTo:
+  globs: ["<glob-1>", "<glob-2>"]
+  languages: ["<lang-1>", "<lang-2>"]
+triggers:
+  - <trigger-1>
+  - <trigger-2>
+alwaysApply: false
+description: >
+  <One-paragraph purpose statement. What this rule enforces and why it matters in one short paragraph.>
+
+instructions:
+  must:
+    - <Non-ambiguous directive #1>
+    - <Non-ambiguous directive #2>
+  should:
+    - <Recommendation #1>
+    - <Recommendation #2>
+  avoid:
+    - <Anti-pattern #1>
+    - <Anti-pattern #2>
+
+examples:
+  good: |
+    <Concise good example code or snippet demonstrating correct application.>
+  bad: |
+    <Concise bad example code or snippet demonstrating a common mistake.>
+
+references:
+  - text: <Human-readable reference label>
+    url: <https://example.com/authoritative-doc>
+  - text: <Another reference (optional)>
+    url: <https://example.com/another-doc>
+
+rationale: >
+  <Brief justification for this rule’s existence; tradeoffs; why this approach was chosen.>
+
+complianceChecklist:
+  - [ ] All required frontmatter fields are present and non-empty.
+  - [ ] Scope clearly defined via `appliesTo.globs` and `appliesTo.languages`.
+  - [ ] At least one good example and one bad example are provided.
+  - [ ] `instructions.must/should/avoid` contain unambiguous bullets.
+  - [ ] `rationale` explains tradeoffs and intent.
+---
+
+# <Human-readable Title>
+
+## Intent
+<Expand on the rule’s intent and boundaries in 2–4 sentences.>
+
+## Context
+<Briefly state where this rule fits in the wider codebase (systems, layers, frameworks).>
+
+## How to Comply
+<Short numbered list (3–7 steps) a developer (or Cursor) can follow to apply this rule.>

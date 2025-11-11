@@ -1,104 +1,104 @@
 # Data Structures
 
+FIP represents structured data with immutable objects and arrays. These collections support pattern matching through destructuring and can be combined using spread syntax. This page explains how to declare, access, and decompose both forms.
+
 ## Objects
 
-Immutable key-value maps with string keys.
+**Signature** `{ key: value, ... }`
 
-```
-my-object: {
-  name: "Filip",
-  age: 35
-}
-```
+**Behavior** Objects are immutable maps with string keys. Reassigning a field creates a new object; existing bindings remain untouched. Accessing a missing key returns `null`, which lets chained lookups short-circuit safely.
 
-### Destructuring
+**Example**
 
-Access properties with dot-notation. Missing keys return `null`.
-
-```
-my-object: {
+```fip
+person: {
   name: "Filip",
   age: 35
 }
 
-log!(my-object.name) // "Filip"
+person.name
+// -> "Filip"
+
+person.address
+// -> null
 ```
 
-```
-my-object: {
-  name: "Filip",
-}
+### Object destructuring
 
-log!(my-object.age) // null
-```
+**Signature** `{ binding, nested: pattern, ... }: <object>`
 
-You can also destructure directly into bindings using matching object patterns. The pattern mirrors the desired keys.
+**Behavior** Patterns bind values directly from an object into the current scope. Shorthand identifiers pull matching keys, while nested patterns allow deeper extraction. Missing keys bind to `null` so downstream code can guard with `defined?`.
 
-```
+**Example**
+
+```fip
 {name}: { name: "Mefiboset" }
-log!(name) // "Mefiboset"
-```
 
-Nested destructuring lets you dig into fields in one step. Unmatched keys produce `null`.
+name
+// -> "Mefiboset"
 
-```
-{person: { name, age }}: {
-  person: {
-    name: "Agnes",
-    age: 30
+{ profile: { city, country }}: {
+  profile: {
+    city: "Oslo",
+    country: "Norway"
   }
 }
-// name = "Agnes", age = 30
 
-{person: { nickname }}: {
-  person: {
-    name: "Agnes"
-  }
-}
-// nickname = null (missing key)
+city
+// -> "Oslo"
+
+country
+// -> "Norway"
 ```
 
-## Lists
+## Arrays
 
-Immutable ordered collections written with square brackets.
+**Signature** `[value1, value2, ...]`
 
+**Behavior** Arrays store ordered values and never mutate in place. Helpers like `map`, `filter`, and `reduce` return new arrays or aggregated results. Index-based helpers (`first`, `rest`, etc.) operate on zero-based positions.
+
+**Example**
+
+```fip
+numbers: [1, 2, 5, 6]
+
+numbers
+// -> [1, 2, 5, 6]
 ```
-my-list: [1, 2, 5, 6]
-names: ["Tore", "Knut", "Agnes", "Mefiboset"]
-```
 
-Use zero-based indexing via helper functions (e.g. `first`, `rest`) or iterate with `map`, `reduce`, and `filter`.
+### Array destructuring
 
-### Destructuring
+**Signature** `[binding1, binding2, ...]: <array>`
 
-List patterns bind each position to a new name. Extra pattern slots become `null` when the input list is shorter.
+**Behavior** Patterns match each array index to a binding. When the array is shorter than the pattern, the remaining bindings receive `null`. Nested patterns let you destructure arrays of objects or mix array and object extraction in the same statement. Destructuring is currently limited to top-level assignments; function parameters must stay as identifiers.
 
-```
+**Example**
+
+```fip
 [first, second]: [10, 20, 30]
-// first = 10, second = 20
+
+first
+// -> 10
+
+second
+// -> 20
 
 [first, second, third]: [5]
-// first = 5, second = null, third = null
-```
 
-Patterns can nest, so you can destructure lists of objects or vice versa.
+first
+// -> 5
 
-```
+second
+// -> null
+
+third
+// -> null
+
 [{ name }, { name: other-name }]: [
   { name: "Tore" },
   { name: "Knut" }
 ]
-// name = "Tore", other-name = "Knut"
 
-[first, { city }]: [
-  [1, 2, 3],
-  { city: "Oslo" }
-]
-// first = [1, 2, 3], city = "Oslo"
-```
-
-Destructuring is currently available for top-level assignments. Function parameters must still be plain identifiers.
-
-```
-
+other-name
+// -> "Knut"
 ```

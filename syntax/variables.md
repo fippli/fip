@@ -1,27 +1,41 @@
 # Variables
 
-Fip does not support mutable variables. When you bind a name to a value, that binding is fixed for the lifetime of the scope.
+FIP bindings are immutable by design, keeping program flow predictable. When you bind a name to a value, that relationship stays fixed for the scope unless you intentionally shadow it in a narrower block. This section covers how to declare bindings and how to name them consistently.
 
 ## Bindings
 
-Use `name: value` to introduce a binding. Re-binding the same name in the same scope is a compile-time error.
+**Signature** `name: expression -> value`
 
-```
+**Behavior** Evaluates `expression` and binds the result to `name`. Rebinding the same name in the same scope raises a compile-time error. Use new identifiers to represent derived values.
+
+**Example**
+
+```fip
 count: 3
-count: 4 // ❌ cannot reassign
-```
+// -> 3
 
-If you need a new value, create a new binding instead.
+next-count: count + 1
+// -> 4
 
-```
-count: 3
-next-count: count + 1 // ✅ new name
+count: 4
+// -> error: cannot reassign 'count' in the same scope
 ```
 
 ## Symbols
 
-Symbol names must use kebab case: lowercase words separated with hyphens.
+**Signature** `<segment-1>-<segment-2>-...`
 
-```
-<name1>-<name2>-<name3>
+**Behavior** Symbol names must be lower-case kebab case. Hyphenated segments improve readability and align with standard library naming. Names ending with `!` or `?` follow the purity and predicate conventions respectively.
+
+**Example**
+
+```fip
+user-name: "Filip"
+// -> "Filip"
+
+is-active?: (flag) { flag }
+// -> <function>
+
+trace-action!: (message) { log!(message) }
+// -> <function>
 ```
