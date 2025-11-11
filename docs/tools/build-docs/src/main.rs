@@ -16,6 +16,8 @@ struct DocPage {
     source_path: PathBuf,
     content_html: String,
     section_id: String,
+    h1_slug: String,
+    h2_headings: Vec<(String, String)>, // (slug, title)
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -38,6 +40,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let mut pages = Vec::new();
     for path in markdown_files {
+        // Skip index.md - it's only used for ordering, not content
+        if path.file_name().and_then(|n| n.to_str()) == Some("index.md") {
+            continue;
+        }
+
         let content = fs::read_to_string(&path)?;
         let file_stem = path
             .file_stem()
@@ -45,12 +52,18 @@ fn main() -> Result<(), Box<dyn Error>> {
             .ok_or_else(|| format!("invalid file name {}", path.display()))?;
         let slug_prefix = file_stem.replace('_', "-");
         let section_id = format!("section-{}", slug_prefix);
-        let (html, doc_title) = render_markdown(&content, &slug_prefix);
+        let (html, doc_title, h1_slug, h2_headings) = render_markdown(&content, &slug_prefix);
+        let title = doc_title
+            .clone()
+            .unwrap_or_else(|| humanize_stem(file_stem));
+        let fallback_slug = format!("{}-{}", slug_prefix, slugify(&title));
         pages.push(DocPage {
-            title: doc_title.unwrap_or_else(|| humanize_stem(file_stem)),
+            title,
             source_path: path,
             content_html: html,
             section_id,
+            h1_slug: h1_slug.unwrap_or(fallback_slug),
+            h2_headings,
         });
     }
 
@@ -106,7 +119,6 @@ fn collect_markdown(dir: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
 
 fn load_spec_order(syntax_dir: &Path) -> Result<HashMap<PathBuf, usize>, Box<dyn Error>> {
     let mut order_map = HashMap::new();
-    order_map.insert(PathBuf::from("index.md"), 0);
 
     let index_path = syntax_dir.join("index.md");
     if !index_path.exists() {
@@ -114,19 +126,23 @@ fn load_spec_order(syntax_dir: &Path) -> Result<HashMap<PathBuf, usize>, Box<dyn
     }
 
     let content = fs::read_to_string(index_path)?;
-    let mut next_position = 1usize;
+    let mut position = 1usize;
+
     for line in content.lines() {
-        for (idx, segment) in line.split('`').enumerate() {
+        let trimmed = line.trim();
+        // Parse lines like "1. `./overview.md`" or "11. `./test.md`"
+        // Look for backticked paths
+        for (idx, segment) in trimmed.split('`').enumerate() {
             if idx % 2 != 1 {
                 continue;
             }
-            let trimmed = segment.trim();
-            if trimmed.starts_with("./") && trimmed.ends_with(".md") {
-                let rel = trimmed.trim_start_matches("./");
+            let path_segment = segment.trim();
+            if path_segment.starts_with("./") && path_segment.ends_with(".md") {
+                let rel = path_segment.trim_start_matches("./");
                 let rel_path = PathBuf::from(rel);
                 if !order_map.contains_key(&rel_path) {
-                    order_map.insert(rel_path, next_position);
-                    next_position += 1;
+                    order_map.insert(rel_path, position);
+                    position += 1;
                 }
             }
         }
@@ -135,7 +151,15 @@ fn load_spec_order(syntax_dir: &Path) -> Result<HashMap<PathBuf, usize>, Box<dyn
     Ok(order_map)
 }
 
-fn render_markdown(markdown: &str, slug_prefix: &str) -> (String, Option<String>) {
+fn render_markdown(
+    markdown: &str,
+    slug_prefix: &str,
+) -> (
+    String,
+    Option<String>,
+    Option<String>,
+    Vec<(String, String)>,
+) {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_FOOTNOTES);
@@ -183,15 +207,23 @@ fn render_markdown(markdown: &str, slug_prefix: &str) -> (String, Option<String>
     let mut html_output = String::new();
     html::push_html(&mut html_output, events.into_iter());
 
+    // Remove class attributes from code elements
+    html_output = strip_code_classes(&html_output);
+
     let mut doc_title = None;
-    for (level, _slug, title) in headings {
+    let mut h1_slug = None;
+    let mut h2_headings = Vec::new();
+    for (level, slug, title) in headings {
         let level_num = heading_level_to_u8(&level);
         if level_num == 1 && doc_title.is_none() {
             doc_title = Some(title.clone());
+            h1_slug = Some(slug.clone());
+        } else if level_num == 2 {
+            h2_headings.push((slug, title));
         }
     }
 
-    (html_output, doc_title)
+    (html_output, doc_title, h1_slug, h2_headings)
 }
 
 fn collect_heading_text(events: &[Event<'_>], mut index: usize) -> (String, usize) {
@@ -276,6 +308,89 @@ fn build_full_site_html(pages: &[DocPage]) -> Result<String, Box<dyn Error>> {
         ));
     }
 
+    // Build sidebar navigation from H1 headings with nested H2 headings
+    let mut sidebar_items = String::new();
+    for page in pages {
+        let title_escaped = html_escape(&page.title);
+        sidebar_items.push_str(&format!(
+            "      <li data-nav-item>\n        <a href=\"#{slug}\">{title}</a>\n",
+            slug = page.h1_slug,
+            title = title_escaped
+        ));
+
+        // Add H2 headings as nested list
+        if !page.h2_headings.is_empty() {
+            sidebar_items.push_str("        <ul>\n");
+            for (h2_slug, h2_title) in &page.h2_headings {
+                let h2_title_escaped = html_escape(h2_title);
+                sidebar_items.push_str(&format!(
+                    "          <li data-nav-item><a href=\"#{slug}\">{title}</a></li>\n",
+                    slug = h2_slug,
+                    title = h2_title_escaped
+                ));
+            }
+            sidebar_items.push_str("        </ul>\n");
+        }
+        sidebar_items.push_str("      </li>\n");
+    }
+
+    let sidebar_html = format!(
+        r##"    <nav>
+      <input type="text" id="nav-filter" placeholder="Filter headings..." />
+      <ul id="nav-list">
+{items}      </ul>
+    </nav>
+    <script>
+      (function() {{
+        const filterInput = document.getElementById('nav-filter');
+        const navList = document.getElementById('nav-list');
+        const navItems = navList.querySelectorAll('[data-nav-item]');
+        
+        filterInput.addEventListener('input', function(e) {{
+          const filter = e.target.value.toLowerCase().trim();
+          
+          navItems.forEach(function(item) {{
+            const link = item.querySelector('a');
+            if (!link) return;
+            
+            const text = link.textContent.toLowerCase();
+            const matches = text.includes(filter);
+            
+            if (matches) {{
+              item.style.display = '';
+              // Show parent H1 if H2 matches
+              const parentLi = item.closest('li[data-nav-item]');
+              if (parentLi && parentLi !== item) {{
+                parentLi.style.display = '';
+              }}
+            }} else {{
+              item.style.display = filter === '' ? '' : 'none';
+            }}
+          }});
+          
+          // Hide H1 items if all their H2 children are hidden
+          navList.querySelectorAll('> li[data-nav-item]').forEach(function(h1Item) {{
+            const h2List = h1Item.querySelector('ul');
+            if (h2List) {{
+              const visibleH2s = Array.from(h2List.querySelectorAll('li[data-nav-item]'))
+                .filter(function(li) {{ return li.style.display !== 'none'; }});
+              const hasVisibleH2s = visibleH2s.length > 0;
+              const h1Link = h1Item.querySelector('> a');
+              const h1Matches = h1Link && h1Link.textContent.toLowerCase().includes(filter);
+              
+              if (!hasVisibleH2s && !h1Matches && filter !== '') {{
+                h1Item.style.display = 'none';
+              }} else {{
+                h1Item.style.display = '';
+              }}
+            }}
+          }});
+        }});
+      }})();
+    </script>"##,
+        items = sidebar_items
+    );
+
     let html = format!(
         r##"<!DOCTYPE html>
 <html lang="en">
@@ -283,18 +398,17 @@ fn build_full_site_html(pages: &[DocPage]) -> Result<String, Box<dyn Error>> {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Fip Language Documentation</title>
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/gh/fippli/css@latest/regular.css"
-    />
+    <link rel="stylesheet" href="style.css" />
   </head>
   <body id="top">
+{sidebar}
     <main>
       {sections}
     </main>
   </body>
 </html>
 "##,
+        sidebar = sidebar_html,
         sections = sections_html,
     );
 
@@ -340,4 +454,32 @@ fn html_escape(input: &str) -> Cow<'_, str> {
     } else {
         Cow::Borrowed(input)
     }
+}
+
+fn strip_code_classes(html: &str) -> String {
+    // Remove class attributes from <code> tags using simple string replacement
+    // Pattern: <code class="..."> -> <code>
+    let mut result = html.to_string();
+
+    // Find and replace <code class="..." patterns
+    let mut search_pos = 0;
+    while let Some(code_start) = result[search_pos..].find("<code") {
+        let code_start_abs = search_pos + code_start;
+        if let Some(class_start) = result[code_start_abs..].find(" class=\"") {
+            let class_start_abs = code_start_abs + class_start;
+            // Find the closing quote
+            if let Some(quote_end) = result[class_start_abs + 8..].find('"') {
+                let quote_end_abs = class_start_abs + 8 + quote_end;
+                // Remove the class attribute (including the space before it)
+                result.replace_range(class_start_abs..=quote_end_abs, "");
+                search_pos = code_start_abs;
+            } else {
+                search_pos = code_start_abs + 1;
+            }
+        } else {
+            search_pos = code_start_abs + 5;
+        }
+    }
+
+    result
 }

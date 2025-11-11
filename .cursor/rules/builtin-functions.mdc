@@ -1,0 +1,94 @@
+---
+name: builtin-functions-currying
+version: 1
+owner: runtime
+status: active
+priority: P1
+appliesTo:
+  globs: ["src/interpreter.rs", "src/**/*.rs"]
+  languages: ["rs"]
+triggers:
+  - adding builtin functions
+  - modifying builtin invocation logic
+alwaysApply: true
+description: >
+  Ensure every builtin function participates in the interpreter’s currying model so partial application and argument metadata remain consistent across the runtime.
+
+instructions:
+  must:
+    - Declare every builtin with an explicit `params: Vec<String>` matching the positional argument order.
+    - Detect partial application by comparing provided arguments to `params.len()` and return a curried builtin when fewer arguments are supplied.
+    - Store captured arguments using the `__curried_builtin__` and `__curried_args__` markers so subsequent calls can merge arguments before execution.
+    - Reconstruct the full argument list before invoking the underlying builtin implementation and propagate any runtime errors.
+  should:
+    - Mirror parameter names from the public API in `params` for clarity (`label`, `value`, etc.).
+    - Add tests covering both direct calls and chained partial applications for each new builtin.
+  avoid:
+    - Executing the builtin immediately when fewer than the required arguments are present.
+    - Allowing curried builtins to drop previously captured arguments or mutate shared state.
+
+examples:
+  good: |
+    self.add_builtin(BuiltinFunction {
+        name: "trace!".to_string(),
+        impure: true,
+        params: vec!["label".to_string(), "value".to_string()],
+        func: Rc::new(|interpreter, args| {
+            if args.len() != 2 {
+                return Err(LangError::Runtime(
+                    "Builtin 'trace!' expects exactly 2 arguments (label, value)".to_string(),
+                    None,
+                ));
+            }
+            let message = interpreter.value_to_string(&args[0])?;
+            let value_str = interpreter.value_to_string(&args[1])?;
+            println!("(trace) {}: {}", message, value_str);
+            Ok(args[1].clone())
+        }),
+    });
+  bad: |
+    self.add_builtin(BuiltinFunction {
+        name: "trace!".to_string(),
+        impure: true,
+        params: vec![], // Missing parameter metadata
+        func: Rc::new(|_, args| {
+            // Executes even when args.len() == 1, so no currying support
+            println!("(trace) {:?}", args);
+            Ok(Value::Null)
+        }),
+    });
+
+references:
+  - text: Interpreter builtin registration
+    url: https://github.com/fippli/fip/blob/main/src/interpreter.rs
+  - text: Syntax documentation conventions
+    url: https://github.com/fippli/fip/blob/main/.cursor/rules/syntax-definition.mdc
+
+rationale: >
+  Currying is a core language feature; enforcing it for builtins keeps user code predictable and allows the interpreter to treat builtins and user-defined functions uniformly during partial application chains.
+
+complianceChecklist:
+  - [ ] All required frontmatter fields are present and non-empty.
+  - [ ] Scope clearly defined via `appliesTo.globs` and `appliesTo.languages`.
+  - [ ] At least one good example and one bad example are provided.
+  - [ ] `instructions.must/should/avoid` contain unambiguous bullets.
+  - [ ] `rationale` explains tradeoffs and intent.
+---
+
+# Builtin Functions Must Support Currying
+
+## Intent
+
+Guarantee that every builtin participates in the same currying semantics as user-defined functions so partial application, pipelines, and higher-order patterns behave identically across the language.
+
+## Context
+
+Touchpoints include the builtin registration paths in `src/interpreter.rs`, the `BuiltinFunction` structure, and any helper utilities that generate or wrap builtin closures.
+
+## How to Comply
+
+1. Add or verify `params: Vec<String>` for each builtin and keep names aligned with runtime expectations.
+2. In the call path, branch when `args.len() < params.len()` to return a curried builtin carrying captured arguments.
+3. When executing a curried builtin, merge stored and incoming arguments, enforce arity, and then invoke the original implementation.
+4. Ensure the interpreter tags curried values with `__curried_builtin__` and `__curried_args__` so nested partial applications resolve.
+5. Add regression tests covering both partial and full applications before shipping the change.

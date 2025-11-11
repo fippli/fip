@@ -1,183 +1,218 @@
 # Operators
 
+Operators manipulate primitive values, combine expressions, and control evaluation flow. All operators are immutable: they return new values without mutating existing bindings. This guide documents each operator’s signature, behavior, and canonical example.
+
 ## Assignment `:`
 
-Assign values to names with `:`.
+**Signature** `name: expression -> value`
 
-### Example
+**Behavior** Binds the evaluated expression to `name` in the current scope. Rebinding the same name in the same scope is illegal; use a new name when deriving additional values. Returns the bound value, enabling pipelines inside composable blocks.
 
-```
+**Example**
+
+```fip
 n: 123
+// -> 123
+
 name: "Filip"
-fn: (x) { x }
-x: { foo: "bar" }
+// -> "Filip"
+
+identity: (x) { x }
+// -> <function>
 ```
 
 ## Addition `+`
 
-Adds two numeric values. Operands must be numbers.
+**Signature** `number + number -> number`
 
-### Example
+**Behavior** Adds two integers and returns their sum. Both operands must be numbers; otherwise the runtime raises a “Doesn't make sense” error.
 
-```
-1 + 2 // -> 3
-```
+**Example**
 
-### add (builtin)
-
-```
-add: (x,y) { x + y }
+```fip
+1 + 2
+// -> 3
 ```
 
 ## Subtraction `-`
 
-Subtracts the right operand from the left operand. Operands must be numbers.
+**Signature** `number - number -> number`
 
-```
-1 - 2 // -> -1
-```
+**Behavior** Subtracts the right operand from the left. Operands must be numbers.
 
-### subtract (builtin)
+**Example**
 
-```
-subtract: (x,y) { x - y }
-```
-
-## Division `/`
-
-Divides the left operand by the right operand. Operands must be numbers.
-
-```
-1 / 2 // -> 1/2
-```
-
-### divide (builtin)
-
-```
-divide: (x,y) { x / y }
+```fip
+5 - 2
+// -> 3
 ```
 
 ## Multiplication `*`
 
-Multiplies the operands. Operands must be numbers.
+**Signature** `number * number -> number`
 
-```
-2 * 3 // -> 6
-```
+**Behavior** Multiplies two numbers. Inputs must be numeric.
 
-### multiply (builtin)
+**Example**
 
-```
-multiply: (x, y) { x * y }
-```
-
-## And `&`
-
-Logical conjunction. Returns `true` only when both operands are `true`.
-
-```
-true & true // true
-false & false // false
-false & true // false
-true & false // false
+```fip
+2 * 3
+// -> 6
 ```
 
-### and? (builtin)
+## Division `/`
 
-```
-and?: (x, y) { x & y }
-```
+**Signature** `number / number -> number`
 
-## Or `|`
+**Behavior** Divides the left operand by the right. Both operands must be numbers. Division by zero raises a runtime error.
 
-Logical disjunction. Returns `true` when at least one operand is `true`.
+**Example**
 
-```
-true | true // true
-false | false // false
-false | true // true
-true | false // true
+```fip
+8 / 2
+// -> 4
 ```
 
-### or? (builtin)
+## Equality `=`
 
-```
-or?: (x,y) { x | y }
-```
+**Signature** `value = value -> boolean`
 
-## Comparison `=`
+**Behavior** Compares two values structurally. Returns `true` when both operands share the same type and value.
 
-Structural equality. Returns `true` when both operands are equal by value and type.
+**Example**
 
-```
-1 = 1 // true
-1 = 2 // false
-"hello" = "hello" // true
-"hello" = "foo" // false
-1 = true // false
-23 = "hello" // false
+```fip
+"hello" = "hello"
+// -> true
 ```
 
 ## Not equal `≠`
 
-The opposite of `=`. Returns `true` when the operands are not equal. Works on any comparable values (numbers, strings, booleans, lists, objects).
+**Signature** `value ≠ value -> boolean`
 
-```
-1 ≠ 2 // true
-"hello" ≠ "hello" // false
-{ name: "Filip" } ≠ { name: "Filip" } // false
+**Behavior** Negates structural equality. Returns `true` when operands differ.
+
+**Example**
+
+```fip
+1 ≠ 2
+// -> true
 ```
 
 ## Less than `<`
 
-Numeric comparison. Both operands must be numbers. Returns `true` when the left side is strictly smaller.
+**Signature** `number < number -> boolean`
 
-```
-3 < 5 // true
-10 < 1 // false
+**Behavior** Returns `true` when the left operand is strictly smaller than the right operand.
+
+**Example**
+
+```fip
+3 < 5
+// -> true
 ```
 
 ## Greater than `>`
 
-Numeric comparison. Both operands must be numbers. Returns `true` when the left side is strictly larger.
+**Signature** `number > number -> boolean`
 
-```
-3 > 5 // false
-10 > 1 // true
+**Behavior** Returns `true` when the left operand is strictly larger than the right operand.
+
+**Example**
+
+```fip
+10 > 1
+// -> true
 ```
 
 ## Less than or equal `<=`
 
-Numeric comparison that allows equality. Both operands must be numbers.
+**Signature** `number <= number -> boolean`
 
-```
-3 <= 3 // true
-1 <= 0 // false
+**Behavior** Returns `true` when the left operand is smaller than or equal to the right operand.
+
+**Example**
+
+```fip
+3 <= 3
+// -> true
 ```
 
 ## Greater than or equal `>=`
 
-Numeric comparison that allows equality. Both operands must be numbers.
+**Signature** `number >= number -> boolean`
 
-```
-3 >= 3 // true
-1 >= 10 // false
-```
+**Behavior** Returns `true` when the left operand is larger than or equal to the right operand.
 
-## Spread
+**Example**
 
-Spread operator
-
-```
-x: { name: "Jim" }
-y: { ...x, age: 100 } // { name: "Jim", age: 100 }
-z: { ...y, age: 75 } // { name: "Jim", age: 75 }
+```fip
+1 >= 10
+// -> false
 ```
 
-Arrays
+## Logical and `&`
 
+**Signature** `boolean & boolean -> boolean`
+
+**Behavior** Evaluates both operands and returns `true` only when both are `true`. Inputs must be boolean values.
+
+**Example**
+
+```fip
+true & false
+// -> false
 ```
+
+## Logical or `|`
+
+**Signature** `boolean | boolean -> boolean`
+
+**Behavior** Returns `true` when either operand is `true`. Both operands must be booleans.
+
+**Example**
+
+```fip
+false | true
+// -> true
+```
+
+## Spread `...`
+
+### Object spread
+
+**Signature** `{ ...object, key: value } -> object`
+
+**Behavior** Copies fields from one object into a new object. Later fields overwrite earlier ones when keys collide. Source objects remain unchanged.
+
+**Example**
+
+```fip
+base: { name: "Jim" }
+// -> { name: "Jim" }
+
+with-age: { ...base, age: 100 }
+// -> { name: "Jim", age: 100 }
+
+updated: { ...with-age, age: 75 }
+// -> { name: "Jim", age: 75 }
+```
+
+### Array spread
+
+**Signature** `[...array, value, ...] -> array`
+
+**Behavior** Expands array elements into a new array literal. The result is a fresh array; the original is unchanged.
+
+**Example**
+
+```fip
 a: [1, 2, 3]
-b: [...a, 4, 5] // [1, 2, 3, 4, 5]
-c: [0, ...b] // [0, 1, 2, 3, 4, 5]
+// -> [1, 2, 3]
+
+b: [...a, 4, 5]
+// -> [1, 2, 3, 4, 5]
+
+c: [0, ...b]
+// -> [0, 1, 2, 3, 4, 5]
 ```

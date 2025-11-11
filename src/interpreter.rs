@@ -1073,7 +1073,7 @@ impl Environment {
         let mut values = self.values.borrow_mut();
         if values.contains_key(&name) {
             return Err(LangError::Runtime(
-                format!("Cannot redefine immutable binding '{}'", name),
+                format!("Mutation error: trying to mutate binding {}", name),
                 None,
             ));
         }

@@ -1,46 +1,71 @@
 # Data Types
 
+FIP programs operate on a small set of core value kinds. Each type enforces immutable semantics and interoperates with language helpers such as comparison operators and destructuring. This page summarizes the built-in types and shows how they behave.
+
 ## Strings
 
-Immutable sequences of UTF-8 characters enclosed in double quotes.
+**Signature** `"text"`
 
-```
+**Behavior** Strings are immutable UTF-8 sequences wrapped in double quotes. Interpolation placeholders (`<binding>`) embed previously declared values during evaluation.
+
+**Example**
+
+```fip
 name: "Filip"
-```
+// -> "Filip"
 
-### Replacements `"<x>"`
-
-Use `<identifier>` placeholders to interpolate existing bindings into string literals.
-
-```
-name: "Filip"
-sentence: "My name is <name>."
+message: "My name is <name>."
+// -> "My name is Filip."
 ```
 
 ## Numbers
 
-64-bit signed integers. Arithmetic operators operate strictly on numeric values.
+**Signature** `<integer>`
 
-```
+**Behavior** Numbers are 64-bit signed integers. Arithmetic operators (`+`, `-`, `*`, `/`) require numeric operands and return numbers; out-of-range results raise runtime errors.
+
+**Example**
+
+```fip
 age: 35
-```
+// -> 35
 
-## null
-
-Represents the absence of a value. Returned by the runtime when a lookup fails or a computation cannot produce a result.
-
-```
-object: { name: "Filip" }
-result: object.age // null
-```
-
-`null` is chainable; property access on `null` always returns `null`.
-
-```
-foo: null
-foo.bar.baz // null
+next-year: age + 1
+// -> 36
 ```
 
 ## Boolean
 
-`true` or `false`
+**Signature** `true | false`
+
+**Behavior** Booleans represent logical truth values. They are the only values accepted by logical operators (`&`, `|`) and by functions annotated with the `?` suffix. Equality compares by value.
+
+**Example**
+
+```fip
+flag: true
+// -> true
+
+same: flag = true
+// -> true
+```
+
+## Null
+
+**Signature** `null`
+
+**Behavior** `null` represents the absence of a value. Property lookups on missing keys yield `null`, and chaining continues to return `null` without raising errors. Use `defined?` to distinguish between present and missing values.
+
+**Example**
+
+```fip
+person: { name: "Filip" }
+
+city: person.city
+// -> null
+
+foo: null
+
+foo.bar.baz
+// -> null
+```

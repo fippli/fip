@@ -24,3 +24,20 @@ log!(third)
 log!(inner-first)
 log!(inner-second)
 log!(last)
+
+
+// Test to add a pseudo scope by defining
+// an object as a first parameter to a pipe
+pseudo-scope: () {
+   // pseudo scope, acts as local assignment for the function
+  { 
+    x: 10,
+    y: 20,
+    name: "Mefiboset"
+  }
+  (scope) {
+    { x: scope.x + 1, y: scope.y + 1, name: "<scope.name>!" }
+  }
+}
+
+log!(pseudo-scope())

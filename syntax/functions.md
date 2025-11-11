@@ -1,161 +1,171 @@
 # Functions
 
-Functions return the value produced by the final expression in their body.
-In multi-line bodies, each line receives the result of the previous one unless a new binding is introduced.
+Functions return the value produced by the final expression in their body. Every function is immutable and curried by default, which means partial application always yields another callable that captures the provided arguments.
 
 ## Definition
 
-Functions are defined with the shape `<name>: (<parameters>) { <body> }`.
+**Signature** `<name>: (<parameters>) { <body> }`
 
-```
-fn: (x) { x } // identity function definition
+**Behavior** Declares an immutable function binding. Parameters are evaluated when the function is called, not when it is defined. The final expression inside the body becomes the return value.
+
+**Example**
+
+```fip
+identity: (x) { x }
+// -> <function>
+
+identity(42)
+// -> 42
 ```
 
 ### Multiple arguments
 
-Separate multiple parameters with commas.
+**Signature** `<name>: (param-1, param-2, ...) { <body> }`
 
-```
-g: (x, y) { x + y } // add function definition
-g(1, 2) // 3
+**Behavior** Listing multiple parameters is sugar for nesting single-argument functions. The runtime still curries them, so you can call the function with any prefix of arguments.
+
+**Example**
+
+```fip
+add: (x, y) { x + y }
+// -> <function>
+
+add(1, 2)
+// -> 3
 ```
 
 ### Currying
 
-Functions are curried by default. Writing multiple parameters is sugar for returning nested single-argument functions.
+**Signature** `fn(arg-1, arg-2, ...)`
 
-```
+**Behavior** Calling a function with fewer arguments than declared returns a new function that expects the remaining arguments. Supplying all arguments at once works because the interpreter applies them from left to right.
+
+**Example**
+
+```fip
 add3: (x, y, z) { x + y + z }
-add1: add3(1)      // function waiting for y and z
-add2: add1(2)      // function waiting for z
-add2(3)            // 6
-```
+// -> <function>
 
-Calling a function with fewer arguments than its definition returns a new function that expects the remaining arguments. Supplying all arguments in a single call still works as usual because the runtime applies them from left to right.
+add1: add3(1)
+// -> <function awaiting y, z>
+
+add1-and-2: add1(2)
+// -> <function awaiting z>
+
+add1-and-2(3)
+// -> 6
+```
 
 ## Function call
 
-Provide arguments inside parentheses after the function name.
+**Signature** `fn(arg-1, arg-2, ...) -> value`
 
-```
-y: 2
-f: (x) { x + 1 }
-f(y) // 3
-```
+**Behavior** Evaluates the callee and each argument, then applies them. Curried results can be called immediately or stored for later use.
 
-```
-n: increment(1)
-log!(n) // 2
-```
+**Example**
 
-## Anonymous function
+```fip
+increment: (x) { x + 1 }
+// -> <function>
 
-Anonymous functions drop the name but otherwise follow the same syntax.
+increment(5)
+// -> 6
 
-```
-(){ 1 = 1 } // returns true
-```
+add: (x, y) { x + y }
+// -> <function>
 
-### Anonymous suffixes
+curried: add(10)
+// -> <function awaiting y>
 
-Inline functions can adopt the same `!` and `?` suffix rules by attaching the suffix directly to the parameter list.
-
-```
-(x)! { log!(x) }    // impure anonymous function
-(x)? { x = 0 }      // boolean anonymous function
+curried(7)
+// -> 17
 ```
 
-Combine this with composable blocks or higher-order calls:
+## Anonymous functions
 
+**Signature** `(params) { <body> }`
+
+**Behavior** Defines a function without a name. Anonymous functions obey the same currying and purity rules as named functions and are commonly passed inline to higher-order helpers.
+
+**Example**
+
+```fip
+(x) { x * 2 }(3)
+// -> 6
 ```
-numbers.filter((n)? { n > 0 })
-numbers.map((n)! {
+
+### Purity suffixes
+
+**Signature** `(params)! { <body> } | (params)? { <body> }`
+
+**Behavior** Attach `!` to mark an anonymous function as impure, or `?` when it returns a boolean. The interpreter enforces the same suffix rules as for named functions.
+
+**Example**
+
+```fip
+numbers: [1, -1, 2]
+
+filter((n)? { n > 0 }, numbers)
+// -> [1, 2]
+
+map((n)! {
   trace!("doubling", n)
   n + n
-})
+}, numbers)
+// -> [2, -2, 4]
 ```
 
-## Composable
+## Composable blocks
 
-Compose operations by stacking expressions—each line feeds the next.
+**Signature** `{ expression-1; expression-2; ... }`
 
-```
-f: (x) {
-  x // passed as parameter to increment
-  increment // incremented value passed to next increment
+**Behavior** Compose operations by stacking expressions—each line feeds the next. This style works well with functions that accept a single argument.
+
+**Example**
+
+```fip
+pipeline: (value) {
+  value
+  increment
   increment
   identity
 }
+// -> <function>
 
-f(1) // 3
+pipeline(1)
+// -> 3
 ```
 
 ## Function notations
 
 ### Impure notation `!`
 
-Append `!` to indicate that a function has side effects (logging, tracing, IO, etc.).
+**Signature** `<name>!: (params) { <body> }`
 
-```
-imp!: (x) { log!("string") }
-```
+**Behavior** Append `!` to indicate that a function performs side effects (logging, tracing, IO, etc.). If a function calls any impure helper, it must also use the `!` suffix. The runtime rejects functions marked with `!` when no impure calls occur in the body.
 
-If a function calls any impure function, it must also use the `!` suffix.
+**Example**
 
-Correct:
+```fip
+logger!: (message) { log!(message) }
+// -> <function>
 
-```
-foo!: (x) { log!(x) }
-```
-
-Wrong:
-
-```
-foo: (x) { log!(x) }
-```
-
-Note: The runtime rejects functions marked with `!` when no impure calls occur in the body.
-
-#### Example
-
-Wrong:
-
-```
-my-imp!: () {
-  add(1, 2)
-}
-```
-
-Should throw a "Not impure" error.
-
-Correct:
-
-```
-my-imp!: () {
-  trace!("This is so dirty...", 42)
-}
+logger!("hello")
+// -> null
 ```
 
 ### Boolean notation `?`
 
-Use the `?` suffix for functions that return a boolean value.
+**Signature** `<name>?: (params) { <body> }`
 
-```
-is-equal?: (x, y) { x = y }
-```
+**Behavior** Use the `?` suffix for functions that return a boolean value. A function that does not return a boolean may not use the `?` suffix.
 
-A function that does not return a boolean value may not use the `?` suffix.
+**Example**
 
-#### Example
-
-Wrong:
-
-```
-is-it?: (x) { x + 3 }
-```
-
-Correct:
-
-```
+```fip
 is-zero?: (x) { x = 0 }
+// -> <function>
+
+is-zero?(0)
+// -> true
 ```
