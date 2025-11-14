@@ -1,0 +1,23 @@
+server: "http://127.0.0.1:3000"
+
+async get-health!: () {
+  http.get!({}, "<server>/health")
+}
+
+response: await get-health!()
+
+log!(response.status)
+
+async echo-response!: () {
+  http.post!({
+    headers: {
+      content-type: "application/json"
+    }
+  }, "<server>/echo", json.stringify({
+    message: "Helloooooo"
+  }))
+}
+
+echh: await echo-response!()
+
+log!(echh)

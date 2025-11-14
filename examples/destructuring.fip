@@ -1,42 +1,55 @@
 log!("== Object Destructuring ==")
 
-{ name, age }: { name: "John", age: 30 }
+{ name, age }: {
+  name: "John",
+  age: 30
+}
+
 log!(name)
+
 log!(age)
 
-{ profile: { city, country }}: {
+{ profile: { city, country } }: {
   profile: {
     city: "Oslo",
     country: "Norway"
   }
 }
+
 log!(city)
+
 log!(country)
 
 log!("== List Destructuring ==")
 
 [first, second, third]: [10, 20, 30]
+
 log!(first)
+
 log!(second)
+
 log!(third)
 
 [[inner-first, inner-second], last]: [[1, 2], 3]
+
 log!(inner-first)
+
 log!(inner-second)
+
 log!(last)
 
-
-// Test to add a pseudo scope by defining
-// an object as a first parameter to a pipe
 pseudo-scope: () {
-   // pseudo scope, acts as local assignment for the function
-  { 
+  {
     x: 10,
     y: 20,
     name: "Mefiboset"
   }
   (scope) {
-    { x: scope.x + 1, y: scope.y + 1, name: "<scope.name>!" }
+    {
+      x: scope.x + 1,
+      y: scope.y + 1,
+      name: "<scope.name>!"
+    }
   }
 }
 

@@ -354,10 +354,24 @@ impl Parser {
             }
         }
 
+        // Check for 'async' keyword at the start (for async function declarations)
+        let mut is_async = false;
+        if let TokenKind::Identifier(ref ident) = self.current_kind() {
+            if ident == "async" {
+                is_async = true;
+                self.advance();
+                self.skip_newlines();
+            }
+        }
+
         // Try to parse a pattern (identifier or list pattern)
         let pattern = match self.try_parse_pattern() {
             Some(pattern) => pattern,
             None => {
+                // If we consumed 'async' but didn't find a pattern, restore and continue
+                if is_async {
+                    self.current = start_index;
+                }
                 let expr = self.parse_expression()?;
                 return Ok(Statement::Expression(expr));
             }
@@ -389,6 +403,7 @@ impl Parser {
                             match self.expect(TokenKind::RParen, "Expected ')' after parameters") {
                                 Ok(()) => {
                                     self.skip_newlines();
+
                                     if matches!(self.current_kind(), TokenKind::LBrace) {
                                         self.advance();
                                         let body_expressions = self.parse_block_contents()?;
@@ -402,25 +417,52 @@ impl Parser {
                                             params,
                                             body: Expression::Block(body_expressions),
                                             impure,
+                                            async_fn: is_async,
                                         }));
                                     } else {
-                                        self.current = expr_start;
+                                        // Not a function, restore to before async was consumed
+                                        if is_async {
+                                            self.current = start_index;
+                                            is_async = false;
+                                        } else {
+                                            self.current = expr_start;
+                                        }
                                     }
                                 }
-                                Err(err) => return Err(err),
+                                Err(err) => {
+                                    // If we consumed async but parsing failed, restore
+                                    if is_async {
+                                        self.current = start_index;
+                                    }
+                                    return Err(err);
+                                }
                             }
                         }
                         Err(err) => {
                             if self.current != params_start {
+                                // If we consumed async but parsing failed, restore
+                                if is_async {
+                                    self.current = start_index;
+                                }
                                 return Err(err);
                             }
-                            self.current = expr_start;
+                            // Not a function, restore to before async was consumed
+                            if is_async {
+                                self.current = start_index;
+                            } else {
+                                self.current = expr_start;
+                            }
                         }
                     }
                 }
             }
 
-            self.current = expr_start;
+            // If we consumed async but this isn't a function, restore position
+            if is_async {
+                self.current = start_index;
+            } else {
+                self.current = expr_start;
+            }
             self.skip_newlines();
             let expr = self.parse_expression()?;
             return Ok(Statement::Assignment { pattern, expr });
@@ -646,14 +688,45 @@ impl Parser {
                 op: BinaryOperator::Sub,
                 right: Box::new(expr),
             })
+        } else if let TokenKind::Identifier(ref ident) = self.current_kind() {
+            if ident == "await" {
+                self.advance();
+                self.skip_newlines();
+                let expr = self.parse_unary_expression()?;
+                Ok(Expression::Await(Box::new(expr)))
+            } else if ident == "async" {
+                // Check if next token is a lambda expression
+                self.advance();
+                self.skip_newlines();
+                if matches!(self.current_kind(), TokenKind::LParen) {
+                    // Parse async lambda, then allow calls on it
+                    if let Some(lambda) = self.try_parse_lambda_with_async(true)? {
+                        // Parse any subsequent calls (e.g., async () {}())
+                        self.parse_call_expression_from_expr(lambda)
+                    } else {
+                        Err(self.error_with_location(
+                            "Expected lambda expression after 'async'".to_string(),
+                        ))
+                    }
+                } else {
+                    Err(self.error_with_location(
+                        "Expected lambda expression after 'async'".to_string(),
+                    ))
+                }
+            } else {
+                self.parse_call_expression()
+            }
         } else {
             self.parse_call_expression()
         }
     }
 
     fn parse_call_expression(&mut self) -> LangResult<Expression> {
-        let mut expr = self.parse_primary_expression()?;
+        let expr = self.parse_primary_expression()?;
+        self.parse_call_expression_from_expr(expr)
+    }
 
+    fn parse_call_expression_from_expr(&mut self, mut expr: Expression) -> LangResult<Expression> {
         loop {
             if matches!(self.current_kind(), TokenKind::Newline) {
                 break;
@@ -961,6 +1034,10 @@ impl Parser {
     }
 
     fn try_parse_lambda(&mut self) -> LangResult<Option<Expression>> {
+        self.try_parse_lambda_with_async(false)
+    }
+
+    fn try_parse_lambda_with_async(&mut self, is_async: bool) -> LangResult<Option<Expression>> {
         let start = self.current;
         self.advance(); // consume '('
         self.skip_newlines();
@@ -1030,6 +1107,7 @@ impl Parser {
             params,
             body: Box::new(Expression::Block(body_expressions)),
             impure,
+            async_fn: is_async,
         }))
     }
 

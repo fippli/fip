@@ -1,18 +1,33 @@
 log!("== Object Spread ==")
 
-base: { name: "Jim" }
-with-age: { ...base, age: 100 }
-updated: { ...with-age, age: 75 }
+base: {
+  name: "Jim"
+}
+
+with-age: {
+  ...base,
+  age: 100
+}
+
+updated: {
+  ...with-age,
+  age: 75
+}
 
 log!(with-age.name)
+
 log!(with-age.age)
+
 log!(updated.age)
 
 log!("== List Spread ==")
 
 original: [1, 2, 3]
+
 extended: [...original, 4, 5]
+
 prefixed: [0, ...extended]
 
 log!(extended)
+
 log!(prefixed)

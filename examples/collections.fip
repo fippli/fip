@@ -3,14 +3,19 @@ log!("== Collections ==")
 numbers: [1, 2, 3, 4]
 
 doubled: map((n) { n * 2 }, numbers)
+
 log!(doubled)
 
 greater-than-two: filter((n) { n > 2 }, numbers)
+
 log!(greater-than-two)
 
 total: reduce((acc, n) { acc + n }, 0, numbers)
+
 log!(total)
 
 squares: numbers
-  map((n) { n * n })
+
+map((n) { n * n })
+
 log!(squares)

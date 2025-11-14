@@ -1,6 +1,7 @@
 use std::{
     env, fs,
     path::{Path, PathBuf},
+    process::{Command, Stdio},
 };
 
 use fippli_lang::ast::{
@@ -40,12 +41,20 @@ fn main() {
         }
         "format" => {
             if args.len() < 3 {
-                eprintln!("Error: 'format' command requires a file argument");
-                eprintln!("Usage: fip format <file.fip> [--write]");
+                eprintln!("Error: 'format' command requires a file or directory argument");
+                eprintln!("Usage: fip format <file.fip|directory> [--write]");
                 std::process::exit(1);
             }
             let write = args.contains(&"--write".to_string()) || args.contains(&"-w".to_string());
             format_command(&args[2], write)
+        }
+        "lint" => {
+            if args.len() < 3 {
+                eprintln!("Error: 'lint' command requires a file or directory argument");
+                eprintln!("Usage: fip lint <file.fip|directory>");
+                std::process::exit(1);
+            }
+            lint_command(&args[2])
         }
         _ => {
             eprintln!("Error: Unknown command '{}'", command);
@@ -67,6 +76,9 @@ fn print_usage() {
     eprintln!("  fip run <file.fip>        Run a FIP program");
     eprintln!("  fip format <file.fip>     Format a FIP source file (prints to stdout)");
     eprintln!("  fip format <file.fip> -w  Format a FIP source file (writes to file)");
+    eprintln!("  fip format <directory> -w Format all .fip files recursively in directory");
+    eprintln!("  fip lint <file.fip>       Lint a FIP source file");
+    eprintln!("  fip lint <directory>      Lint all .fip files recursively in directory");
     eprintln!("  fip help                  Show this help message");
     eprintln!("  fip version               Show version information");
 }
@@ -104,15 +116,38 @@ fn run_command(file: &str) -> Result<(), LangError> {
     Ok(())
 }
 
-fn format_command(file: &str, write: bool) -> Result<(), LangError> {
-    let source = fs::read_to_string(file)
+fn format_command(path: &str, write: bool) -> Result<(), LangError> {
+    let path_buf = PathBuf::from(path);
+
+    if path_buf.is_dir() {
+        if !write {
+            return Err(LangError::Runtime(
+                "Cannot format directory without --write flag. Use: fip format <directory> -w"
+                    .to_string(),
+                None,
+            ));
+        }
+        format_directory(&path_buf)
+    } else if path_buf.is_file() {
+        format_file(&path_buf, write)
+    } else {
+        Err(LangError::Runtime(
+            format!("Path '{}' does not exist", path),
+            None,
+        ))
+    }
+}
+
+fn format_file(file_path: &Path, write: bool) -> Result<(), LangError> {
+    let source = fs::read_to_string(file_path)
         .map_err(|e| LangError::Runtime(format!("Failed to read file: {}", e), None))?;
 
-    let tokens = Lexer::with_source_and_file(&source, source.clone(), PathBuf::from(file))
+    let tokens = Lexer::with_source_and_file(&source, source.clone(), file_path.to_path_buf())
         .lex()
         .map_err(|e| LangError::Runtime(format!("Parse error: {}", e), None))?;
 
-    let mut parser = FipParser::with_source_and_file(tokens, source.clone(), PathBuf::from(file));
+    let mut parser =
+        FipParser::with_source_and_file(tokens, source.clone(), file_path.to_path_buf());
     let program = parser
         .parse_program()
         .map_err(|e| LangError::Runtime(format!("Parse error: {}", e), None))?;
@@ -121,14 +156,150 @@ fn format_command(file: &str, write: bool) -> Result<(), LangError> {
     let formatted = formatter.format_program(&program);
 
     if write {
-        fs::write(file, formatted)
+        fs::write(file_path, formatted)
             .map_err(|e| LangError::Runtime(format!("Failed to write file: {}", e), None))?;
-        println!("Formatted: {}", file);
+        println!("Formatted: {}", file_path.display());
     } else {
         print!("{}", formatted);
     }
 
     Ok(())
+}
+
+fn format_directory(dir_path: &Path) -> Result<(), LangError> {
+    let mut files_formatted = 0;
+    let mut errors = Vec::new();
+
+    for entry in walkdir::WalkDir::new(dir_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("fip") {
+            match format_file(path, true) {
+                Ok(()) => files_formatted += 1,
+                Err(e) => {
+                    errors.push((path.to_path_buf(), e));
+                }
+            }
+        }
+    }
+
+    if files_formatted > 0 {
+        println!("Formatted {} file(s)", files_formatted);
+    }
+
+    if !errors.is_empty() {
+        eprintln!("\nErrors occurred while formatting:");
+        for (path, error) in &errors {
+            eprintln!("  {}: {}", path.display(), error);
+        }
+        return Err(LangError::Runtime(
+            format!("Failed to format {} file(s)", errors.len()),
+            None,
+        ));
+    }
+
+    Ok(())
+}
+
+fn lint_command(path: &str) -> Result<(), LangError> {
+    let path_buf = PathBuf::from(path);
+
+    if !path_buf.exists() {
+        return Err(LangError::Runtime(
+            format!("Path '{}' does not exist", path),
+            None,
+        ));
+    }
+
+    // Try to find fip-lint binary
+    // Strategy: check multiple possible locations
+    let lint_binary = find_linter_binary()?;
+
+    let mut cmd = Command::new(&lint_binary);
+    cmd.arg(path);
+    cmd.stdout(Stdio::inherit());
+    cmd.stderr(Stdio::inherit());
+
+    let status = cmd.status().map_err(|e| {
+        LangError::Runtime(
+            format!(
+                "Failed to run linter: {}. Make sure fip-lint is available. Tried: {}",
+                e,
+                lint_binary.display()
+            ),
+            None,
+        )
+    })?;
+
+    if !status.success() {
+        return Err(LangError::Runtime("Linting found errors".to_string(), None));
+    }
+
+    Ok(())
+}
+
+fn find_linter_binary() -> Result<PathBuf, LangError> {
+    // Try 1: Relative to current working directory (for development)
+    let cwd_lint = PathBuf::from("tools/linter/target/debug/fip-lint");
+    if cwd_lint.exists() {
+        return Ok(cwd_lint);
+    }
+
+    let cwd_lint_release = PathBuf::from("tools/linter/target/release/fip-lint");
+    if cwd_lint_release.exists() {
+        return Ok(cwd_lint_release);
+    }
+
+    // Try 2: Relative to current executable
+    if let Ok(exe_path) = env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            // Same directory as fip binary
+            let same_dir = exe_dir.join("fip-lint");
+            if same_dir.exists() {
+                return Ok(same_dir);
+            }
+
+            // Try to find workspace root by going up from target/debug or target/release
+            if let Some(workspace_root) = find_workspace_root(exe_dir) {
+                let debug_lint = workspace_root.join("tools/linter/target/debug/fip-lint");
+                if debug_lint.exists() {
+                    return Ok(debug_lint);
+                }
+
+                let release_lint = workspace_root.join("tools/linter/target/release/fip-lint");
+                if release_lint.exists() {
+                    return Ok(release_lint);
+                }
+            }
+        }
+    }
+
+    // Try 3: Check if fip-lint is in PATH
+    if Command::new("fip-lint").arg("--version").output().is_ok() {
+        return Ok(PathBuf::from("fip-lint"));
+    }
+
+    Err(LangError::Runtime(
+        "Could not find fip-lint binary. Please build it with: cd tools/linter && cargo build"
+            .to_string(),
+        None,
+    ))
+}
+
+fn find_workspace_root(mut path: &Path) -> Option<PathBuf> {
+    // Look for Cargo.toml or tools/linter directory to identify workspace root
+    loop {
+        let cargo_toml = path.join("Cargo.toml");
+        let linter_dir = path.join("tools/linter");
+
+        if cargo_toml.exists() && linter_dir.exists() {
+            return Some(path.to_path_buf());
+        }
+
+        path = path.parent()?;
+    }
 }
 
 // Formatter implementation (copied from tools/format)
@@ -269,11 +440,13 @@ impl Formatter {
                 params,
                 body,
                 impure,
+                async_fn,
             } => {
+                let async_prefix = if *async_fn { "async " } else { "" };
                 let notation = if *impure { "!" } else { "" };
                 let params_str = params.join(", ");
                 let body_str = self.format_lambda_body(body);
-                format!("({}){} {}", params_str, notation, body_str)
+                format!("{}({}){} {}", async_prefix, params_str, notation, body_str)
             }
             Expression::Object(fields) => {
                 if fields.is_empty() {
@@ -345,6 +518,9 @@ impl Formatter {
                     BinaryOperator::Or => "|",
                 };
                 format!("{} {} {}", left_str, op_str, right_str)
+            }
+            Expression::Await(expr) => {
+                format!("await {}", self.format_expression(expr))
             }
         }
     }

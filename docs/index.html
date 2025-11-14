@@ -23,13 +23,6 @@
         </ul>
       </li>
       <li data-nav-item>
-        <a href="#variables-variables">Variables</a>
-        <ul>
-          <li data-nav-item><a href="#variables-bindings">Bindings</a></li>
-          <li data-nav-item><a href="#variables-symbols">Symbols</a></li>
-        </ul>
-      </li>
-      <li data-nav-item>
         <a href="#data-types-data-types">Data Types</a>
         <ul>
           <li data-nav-item><a href="#data-types-strings">Strings</a></li>
@@ -58,6 +51,13 @@
         </ul>
       </li>
       <li data-nav-item>
+        <a href="#variables-variables">Variables</a>
+        <ul>
+          <li data-nav-item><a href="#variables-bindings">Bindings</a></li>
+          <li data-nav-item><a href="#variables-symbols">Symbols</a></li>
+        </ul>
+      </li>
+      <li data-nav-item>
         <a href="#functions-functions">Functions</a>
         <ul>
           <li data-nav-item><a href="#functions-definition">Definition</a></li>
@@ -65,12 +65,6 @@
           <li data-nav-item><a href="#functions-anonymous-functions">Anonymous functions</a></li>
           <li data-nav-item><a href="#functions-composable-blocks">Composable blocks</a></li>
           <li data-nav-item><a href="#functions-function-notations">Function notations</a></li>
-        </ul>
-      </li>
-      <li data-nav-item>
-        <a href="#core-core-functions">Core Functions</a>
-        <ul>
-          <li data-nav-item><a href="#core-reference-guides">Reference Guides</a></li>
         </ul>
       </li>
       <li data-nav-item>
@@ -96,6 +90,19 @@
           <li data-nav-item><a href="#errors-doesnt-make-sense">Doesn&#39;t make sense</a></li>
           <li data-nav-item><a href="#errors-suffix-error">Suffix error</a></li>
           <li data-nav-item><a href="#errors-mutation-error">Mutation error</a></li>
+        </ul>
+      </li>
+      <li data-nav-item>
+        <a href="#core-core-functions">Core Functions</a>
+        <ul>
+          <li data-nav-item><a href="#core-reference-guides">Reference Guides</a></li>
+        </ul>
+      </li>
+      <li data-nav-item>
+        <a href="#async-async">Async</a>
+        <ul>
+          <li data-nav-item><a href="#async-async-functions">Async functions</a></li>
+          <li data-nav-item><a href="#async-await">Await</a></li>
         </ul>
       </li>
       <li data-nav-item>
@@ -127,6 +134,8 @@
           <li data-nav-item><a href="#effects-log">log!</a></li>
           <li data-nav-item><a href="#effects-trace">trace!</a></li>
           <li data-nav-item><a href="#effects-for-each">for-each!</a></li>
+          <li data-nav-item><a href="#effects-wait">wait!</a></li>
+          <li data-nav-item><a href="#effects-repeat">repeat!</a></li>
         </ul>
       </li>
       <li data-nav-item>
@@ -155,6 +164,26 @@
         <ul>
           <li data-nav-item><a href="#values-map">.map</a></li>
           <li data-nav-item><a href="#values-defined">defined?</a></li>
+        </ul>
+      </li>
+      <li data-nav-item>
+        <a href="#http-http">HTTP</a>
+        <ul>
+          <li data-nav-item><a href="#http-httprequest">http.request!</a></li>
+          <li data-nav-item><a href="#http-httpget">http.get!</a></li>
+          <li data-nav-item><a href="#http-httppost">http.post!</a></li>
+          <li data-nav-item><a href="#http-httpput">http.put!</a></li>
+          <li data-nav-item><a href="#http-httpdelete">http.delete!</a></li>
+        </ul>
+      </li>
+      <li data-nav-item>
+        <a href="#promise-promise">Promise</a>
+        <ul>
+          <li data-nav-item><a href="#promise-promise-value">Promise value</a></li>
+          <li data-nav-item><a href="#promise-promiseresolve">Promise.resolve</a></li>
+          <li data-nav-item><a href="#promise-promisereject">Promise.reject</a></li>
+          <li data-nav-item><a href="#promise-promisethen">Promise.then</a></li>
+          <li data-nav-item><a href="#promise-promiseall">Promise.all</a></li>
         </ul>
       </li>
       </ul>
@@ -290,37 +319,6 @@ trace!(&quot;subtotal&quot;, subtotal)
 
 trace!(&quot;total&quot;, total)
 // -&gt; 87.5
-</code></pre>
-
-</section>
-<section id="section-variables" data-doc-section="section-variables" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/variables.md">
-<h1 id="variables-variables">Variables</h1>
-<p>FIP bindings are immutable by design, keeping program flow predictable. When you bind a name to a value, that relationship stays fixed for the scope unless you intentionally shadow it in a narrower block. This section covers how to declare bindings and how to name them consistently.</p>
-<h2 id="variables-bindings">Bindings</h2>
-<p><strong>Signature</strong> <code>name: expression -&gt; value</code></p>
-<p><strong>Behavior</strong> Evaluates <code>expression</code> and binds the result to <code>name</code>. Rebinding the same name in the same scope raises a compile-time error. Use new identifiers to represent derived values.</p>
-<p><strong>Example</strong></p>
-<pre><code>count: 3
-// -&gt; 3
-
-next-count: count + 1
-// -&gt; 4
-
-count: 4
-// -&gt; error: cannot reassign 'count' in the same scope
-</code></pre>
-<h2 id="variables-symbols">Symbols</h2>
-<p><strong>Signature</strong> <code>&lt;segment-1&gt;-&lt;segment-2&gt;-...</code></p>
-<p><strong>Behavior</strong> Symbol names must be lower-case kebab case. Hyphenated segments improve readability and align with standard library naming. Names ending with <code>!</code> or <code>?</code> follow the purity and predicate conventions respectively.</p>
-<p><strong>Example</strong></p>
-<pre><code>user-name: &quot;Filip&quot;
-// -&gt; &quot;Filip&quot;
-
-is-active?: (flag) { flag }
-// -&gt; &lt;function&gt;
-
-trace-action!: (message) { log!(message) }
-// -&gt; &lt;function&gt;
 </code></pre>
 
 </section>
@@ -501,6 +499,37 @@ c: [0, ...b]
 </code></pre>
 
 </section>
+<section id="section-variables" data-doc-section="section-variables" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/variables.md">
+<h1 id="variables-variables">Variables</h1>
+<p>FIP bindings are immutable by design, keeping program flow predictable. When you bind a name to a value, that relationship stays fixed for the scope unless you intentionally shadow it in a narrower block. This section covers how to declare bindings and how to name them consistently.</p>
+<h2 id="variables-bindings">Bindings</h2>
+<p><strong>Signature</strong> <code>name: expression -&gt; value</code></p>
+<p><strong>Behavior</strong> Evaluates <code>expression</code> and binds the result to <code>name</code>. Rebinding the same name in the same scope raises a compile-time error. Use new identifiers to represent derived values.</p>
+<p><strong>Example</strong></p>
+<pre><code>count: 3
+// -&gt; 3
+
+next-count: count + 1
+// -&gt; 4
+
+count: 4
+// -&gt; error: cannot reassign 'count' in the same scope
+</code></pre>
+<h2 id="variables-symbols">Symbols</h2>
+<p><strong>Signature</strong> <code>&lt;segment-1&gt;-&lt;segment-2&gt;-...</code></p>
+<p><strong>Behavior</strong> Symbol names must be lower-case kebab case. Hyphenated segments improve readability and align with standard library naming. Names ending with <code>!</code> or <code>?</code> follow the purity and predicate conventions respectively.</p>
+<p><strong>Example</strong></p>
+<pre><code>user-name: &quot;Filip&quot;
+// -&gt; &quot;Filip&quot;
+
+is-active?: (flag) { flag }
+// -&gt; &lt;function&gt;
+
+trace-action!: (message) { log!(message) }
+// -&gt; &lt;function&gt;
+</code></pre>
+
+</section>
 <section id="section-functions" data-doc-section="section-functions" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/functions.md">
 <h1 id="functions-functions">Functions</h1>
 <p>Functions return the value produced by the final expression in their body. Every function is immutable and curried by default, which means partial application always yields another callable that captures the provided arguments.</p>
@@ -616,21 +645,6 @@ logger!(&quot;hello&quot;)
 is-zero?(0)
 // -&gt; true
 </code></pre>
-
-</section>
-<section id="section-core" data-doc-section="section-core" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/core.md">
-<h1 id="core-core-functions">Core Functions</h1>
-<p>The core module provides a compact standard library that complements the language syntax. Each function is curried: calling it with fewer arguments than listed returns a new function waiting for the remainder. Use the pages under <code>core/</code> for detailed behavior, signatures, and examples.</p>
-<h2 id="core-reference-guides">Reference Guides</h2>
-<ul>
-<li><a href="core/identity.md">Identity</a> — Identity helpers such as <code>identity</code>.</li>
-<li><a href="core/values.md">Values</a> — Single-value utilities like <code>.map</code> and <code>defined?</code>.</li>
-<li><a href="core/math.md">Math</a> — Numeric utilities including <code>sum</code>, <code>add</code>, <code>subtract</code>, <code>multiply</code>, <code>divide</code>, <code>divide-by</code>, <code>increment</code>, and <code>decrement</code>.</li>
-<li><a href="core/array.md">Array Helpers</a> — Collection routines like <code>map</code>, <code>reduce</code>, and predicates.</li>
-<li><a href="core/effects.md">Effects</a> — Impure helpers like <code>log!</code>, <code>trace!</code>, and <code>for-each!</code>.</li>
-<li><a href="core/control.md">Control</a> — Conditional helpers such as the callable <code>if</code>.</li>
-<li><a href="core/object.md">Object Helpers</a> — Reserved for record utilities; update this page as new functions land.</li>
-</ul>
 
 </section>
 <section id="section-data-structures" data-doc-section="section-data-structures" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/data-structures.md">
@@ -800,6 +814,56 @@ count: count + 1
 </code></pre>
 
 </section>
+<section id="section-core" data-doc-section="section-core" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/core.md">
+<h1 id="core-core-functions">Core Functions</h1>
+<p>The core module provides a compact standard library that complements the language syntax. Each function is curried: calling it with fewer arguments than listed returns a new function waiting for the remainder. Use the pages under <code>core/</code> for detailed behavior, signatures, and examples.</p>
+<h2 id="core-reference-guides">Reference Guides</h2>
+<ul>
+<li><a href="core/identity.md">Identity</a> — Identity helpers such as <code>identity</code>.</li>
+<li><a href="core/values.md">Values</a> — Single-value utilities like <code>.map</code> and <code>defined?</code>.</li>
+<li><a href="core/math.md">Math</a> — Numeric utilities including <code>sum</code>, <code>add</code>, <code>subtract</code>, <code>multiply</code>, <code>divide</code>, <code>divide-by</code>, <code>increment</code>, and <code>decrement</code>.</li>
+<li><a href="core/array.md">Array Helpers</a> — Collection routines like <code>map</code>, <code>reduce</code>, and predicates.</li>
+<li><a href="core/effects.md">Effects</a> — Impure helpers like <code>log!</code>, <code>trace!</code>, and <code>for-each!</code>.</li>
+<li><a href="core/control.md">Control</a> — Conditional helpers such as the callable <code>if</code>.</li>
+<li><a href="core/object.md">Object Helpers</a> — Reserved for record utilities; update this page as new functions land.</li>
+</ul>
+
+</section>
+<section id="section-async" data-doc-section="section-async" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/async.md">
+<h1 id="async-async">Async</h1>
+<p>Async functions return promises and enable sequential composition of asynchronous operations. Use <code>async</code> to mark functions that return promises, and <code>await</code> to wait for promise settlement. See <a href="./promise.md">promise</a> for promise combinators and <a href="./http.md">http</a> for network helpers that return promises.</p>
+<h2 id="async-async-functions">Async functions</h2>
+<p><strong>Signature</strong> <code>async &lt;name&gt;: (&lt;parameters&gt;) { &lt;body&gt; }</code> or <code>async &lt;name&gt;!: (&lt;parameters&gt;) { &lt;body&gt; }</code></p>
+<p><strong>Behavior</strong> Declares a function that returns a promise. The body executes asynchronously, and any promise-returning expressions can be chained using pipeline syntax. Use <code>!</code> when the function performs side effects (same rules as regular functions). Calling the function without <code>await</code> returns a pending promise; use <code>await</code> to suspend execution until the promise settles and extract the value.</p>
+<p><strong>Example</strong></p>
+<pre><code>async fetch-message!: () {
+  &quot;https://status.fip.dev/health&quot;
+  http.get!
+  (response) { response.json.message }
+}
+// -&gt; &lt;function&gt;
+
+pending: fetch-message()
+// -&gt; &lt;promise pending&gt;
+
+result: await fetch-message()
+// -&gt; message
+</code></pre>
+<h2 id="async-await">Await</h2>
+<p><strong>Signature</strong> <code>await &lt;expression&gt; -&gt; value</code></p>
+<p><strong>Behavior</strong> Suspends execution until the promise returned by <code>expression</code> settles. If the promise fulfills, <code>await</code> returns the fulfilled value. If it rejects, <code>await</code> throws the rejection error. <code>await</code> can only be used inside <code>async</code> functions or at the top level of a program.</p>
+<p><strong>Example</strong></p>
+<pre><code>async load-data: () {
+  http.get!(&quot;https://api.example.com/data&quot;)
+  (response) { response.json.items }
+}
+// -&gt; &lt;function&gt;
+
+items: await load-data()
+// -&gt; [item1, item2, ...]
+</code></pre>
+
+</section>
 <section id="section-comments" data-doc-section="section-comments" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/comments.md">
 <h1 id="comments-comments">Comments</h1>
 <p>Comments document intent without affecting evaluation. They are stripped by the lexer before parsing, so they never change runtime behavior. Use them to explain tricky logic or annotate pipelines for future readers.</p>
@@ -927,6 +991,29 @@ fallback: if(defined?(missing), () { missing }, () { &quot;No value&quot; })
 
 for-each!((word)! { log!(word) }, words)
 // -&gt; null
+</code></pre>
+<h2 id="effects-wait">wait!</h2>
+<p><strong>Signature</strong> <code>wait!: (fn, milliseconds) -&gt; value</code></p>
+<p><strong>Behavior</strong> Calls the impure function <code>fn</code> after waiting for <code>milliseconds</code> milliseconds and returns its result. The delay blocks execution, so <code>wait!</code> should be used sparingly. The function receives no arguments and its return value becomes the result of <code>wait!</code>.</p>
+<p><strong>Implementation Notes</strong> Uses the host runtime's sleep mechanism to pause execution. The delay is approximate and may vary based on system scheduling.</p>
+<p><strong>Example</strong></p>
+<pre><code>result: wait!(()! { log!(&quot;delayed&quot;); 42 }, 1000)
+// -&gt; 42
+// (after 1 second, prints &quot;delayed&quot;)
+</code></pre>
+<h2 id="effects-repeat">repeat!</h2>
+<p><strong>Signature</strong> <code>repeat!: (fn, milliseconds) -&gt; null</code></p>
+<p><strong>Behavior</strong> Repeatedly calls the impure function <code>fn</code> with a delay of <code>milliseconds</code> between each call. The function continues to run indefinitely until the program terminates or an error occurs. The function receives no arguments and its return value is ignored. Always returns <code>null</code>.</p>
+<p><strong>Implementation Notes</strong> Runs in a loop, calling the function and then sleeping for the specified duration. The delay is approximate and may vary based on system scheduling.</p>
+<p><strong>Example</strong></p>
+<pre><code>count: 0
+
+repeat!(()! {
+  count: count + 1
+  log!(count)
+}, 1000)
+// -&gt; null
+// (prints 1, 2, 3, ... every second)
 </code></pre>
 
 </section>
@@ -1090,6 +1177,144 @@ enrich()
 defined?(123)
 // -&gt; true
 </code></pre>
+
+</section>
+<section id="section-http" data-doc-section="section-http" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/http/http.md">
+<h1 id="http-http">HTTP</h1>
+<p>The HTTP module exposes impure helpers that perform network requests. Every helper returns a <code>Promise</code> so you can compose them with <a href="./async.md">async</a> workflows. Response records expose <code>status</code>, <code>headers</code>, <code>text</code>, and <code>json</code> accessors for downstream processing. See <a href="./promise.md">promise</a> to understand how the returned promises behave.</p>
+<h2 id="http-httprequest">http.request!</h2>
+<p><strong>Signature</strong> <code>http.request!: (options) -&gt; Promise&lt;Response&gt;</code></p>
+<p><strong>Behavior</strong> Issues an HTTP request based on the <code>options</code> record. Expected fields include <code>url</code>, <code>method</code>, <code>headers</code>, and <code>body</code>. Missing fields fall back to sensible defaults (<code>method</code> defaults to <code>&quot;GET&quot;</code> and <code>headers</code> defaults to <code>{}</code>). The function returns a promise that fulfills with a response record or rejects if the request fails to reach the server.</p>
+<p><strong>Implementation Notes</strong> The builtin curries the <code>options</code> parameter, enabling higher-order factories such as <code>http.request!({ headers: common })</code>. Under the hood it defers to the host runtime's fetch implementation and preserves streaming semantics for <code>text</code> and <code>json</code>.</p>
+<p><strong>Example</strong></p>
+<pre><code>async fetch-json: () {
+  http.request!({
+    url: &quot;https://api.example.com/data&quot;,
+    method: &quot;PATCH&quot;,
+    headers: { &quot;content-type&quot;: &quot;application/json&quot; },
+    body: &quot;{\&quot;active\&quot;: true}&quot;
+  })
+  (response) { response.json.updated }
+}
+// -&gt; &lt;promise pending&gt;
+</code></pre>
+<h2 id="http-httpget">http.get!</h2>
+<p><strong>Signature</strong> <code>http.get!: (options, url) -&gt; Promise&lt;Response&gt;</code></p>
+<p><strong>Behavior</strong> Convenience wrapper around <code>http.request!</code> with <code>method: &quot;GET&quot;</code>. Accepts an <code>options</code> record and a <code>url</code> string. The <code>options</code> record can augment headers or query parameters. Returns a promise that fulfills with the response record.</p>
+<p><strong>Implementation Notes</strong> Implemented as a partially applied <code>http.request!</code>, so you can call <code>http.get!({}, url)</code> to receive a promise immediately or <code>http.get!({ headers: {...} }, url)</code> when additional headers are needed.</p>
+<p><strong>Example</strong></p>
+<pre><code>async fetch-status: () {
+  http.get!({}, &quot;https://status.fip.dev/health&quot;)
+  await
+  (response) { response.status }
+}
+// -&gt; &lt;promise pending&gt;
+</code></pre>
+<h2 id="http-httppost">http.post!</h2>
+<p><strong>Signature</strong> <code>http.post!: (options, url, body) -&gt; Promise&lt;Response&gt;</code></p>
+<p><strong>Behavior</strong> Sends a POST request to <code>url</code> with the provided <code>body</code>. The <code>options</code> record can override headers or set a different content type. Returns a promise that fulfills with the response. If the network layer returns a non-2xx status, the promise still fulfills; inspect <code>response.status</code> to branch on failures.</p>
+<p><strong>Implementation Notes</strong> Sugar for calling <code>http.request!</code> with <code>method: &quot;POST&quot;</code> and the supplied body. Because arguments are curried, you may partially apply the options and reuse the resulting function.</p>
+<p><strong>Example</strong></p>
+<pre><code>async create-user: (name) {
+  http.post!(
+    { headers: { &quot;content-type&quot;: &quot;application/json&quot; } },
+    &quot;https://api.example.com/users&quot;,
+    &quot;{\&quot;name\&quot;: \&quot;&quot; + name + &quot;\&quot;}&quot;
+  )
+  await
+  (response) { response.json.id }
+}
+// -&gt; &lt;function&gt;
+
+pending: create-user(&quot;Filip&quot;)
+// -&gt; &lt;promise pending&gt;
+</code></pre>
+<h2 id="http-httpput">http.put!</h2>
+<p><strong>Signature</strong> <code>http.put!: (options, url, body) -&gt; Promise&lt;Response&gt;</code></p>
+<p><strong>Behavior</strong> Sends a PUT request to <code>url</code> with the provided <code>body</code>. The <code>options</code> record can override headers or set a different content type. Returns a promise that fulfills with the response. If the network layer returns a non-2xx status, the promise still fulfills; inspect <code>response.status</code> to branch on failures.</p>
+<p><strong>Implementation Notes</strong> Sugar for calling <code>http.request!</code> with <code>method: &quot;PUT&quot;</code> and the supplied body. Because arguments are curried, you may partially apply the options and reuse the resulting function.</p>
+<p><strong>Example</strong></p>
+<pre><code>async update-user: (id, name) {
+  http.put!(
+    { headers: { &quot;content-type&quot;: &quot;application/json&quot; } },
+    &quot;https://api.example.com/users/&quot; + id,
+    &quot;{\&quot;name\&quot;: \&quot;&quot; + name + &quot;\&quot;}&quot;
+  )
+  await
+  (response) { response.json.updated }
+}
+// -&gt; &lt;function&gt;
+
+result: await update-user(&quot;123&quot;, &quot;Filip&quot;)
+// -&gt; true
+</code></pre>
+<h2 id="http-httpdelete">http.delete!</h2>
+<p><strong>Signature</strong> <code>http.delete!: (options, url) -&gt; Promise&lt;Response&gt;</code></p>
+<p><strong>Behavior</strong> Sends a DELETE request to <code>url</code>. The <code>options</code> record can augment headers. Returns a promise that fulfills with the response record.</p>
+<p><strong>Implementation Notes</strong> Convenience wrapper around <code>http.request!</code> with <code>method: &quot;DELETE&quot;</code>. You can call <code>http.delete!({}, url)</code> to receive a promise immediately or <code>http.delete!({ headers: {...} }, url)</code> when additional headers are needed.</p>
+<p><strong>Example</strong></p>
+<pre><code>async remove-user: (id) {
+  http.delete!({}, &quot;https://api.example.com/users/&quot; + id)
+  await
+  (response) { response.status }
+}
+// -&gt; &lt;function&gt;
+
+status: await remove-user(&quot;123&quot;)
+// -&gt; 204
+</code></pre>
+
+</section>
+<section id="section-promise" data-doc-section="section-promise" data-source="/Users/filipjohansson/dev/fippli/fip/syntax/promise.md">
+<h1 id="promise-promise">Promise</h1>
+<p>Promises encapsulate values that may arrive later. They bridge impure effects with pure composition by representing eventual results. Read <a href="./async.md">async</a> for the control-flow constructs that produce promises and <a href="./http.md">http</a> for impure helpers that return them.</p>
+<h2 id="promise-promise-value">Promise value</h2>
+<p><strong>Signature</strong> <code>Promise&lt;value&gt;</code></p>
+<p><strong>Behavior</strong> Represents a computation that is either <code>pending</code>, <code>fulfilled</code>, or <code>rejected</code>. Promises are immutable references: fulfillment fixes the value forever, and rejection records the final error. Inspecting a promise never blocks; use <code>await</code> or combinators to observe its result.</p>
+<p><strong>Implementation Notes</strong> Promises wrap a curried builtin that schedules continuations on the interpreter's event loop. Equality compares identity rather than settled values.</p>
+<p><strong>Example</strong></p>
+<pre><code>async fetch-count: () {
+  42
+}
+// -&gt; &lt;promise pending&gt;
+</code></pre>
+<h2 id="promise-promiseresolve">Promise.resolve</h2>
+<p><strong>Signature</strong> <code>Promise.resolve: (value) -&gt; Promise&lt;value&gt;</code></p>
+<p><strong>Behavior</strong> Returns a fulfilled promise containing <code>value</code>. If <code>value</code> is already a promise, the result adopts its state. Because the function is curried, you can partially apply it when building higher-order utilities.</p>
+<p><strong>Implementation Notes</strong> Implemented as a pure builtin that skips the scheduler when possible by adopting fulfilled values immediately.</p>
+<p><strong>Example</strong></p>
+<pre><code>always-hello: Promise.resolve(&quot;hello&quot;)
+// -&gt; &lt;promise fulfilled&gt;
+</code></pre>
+<h2 id="promise-promisereject">Promise.reject</h2>
+<p><strong>Signature</strong> <code>Promise.reject: (error) -&gt; Promise&lt;never&gt;</code></p>
+<p><strong>Behavior</strong> Returns a rejected promise that propagates <code>error</code> to downstream consumers. It never transitions to fulfillment.</p>
+<p><strong>Implementation Notes</strong> Stores the provided error in the promise metadata so repeated awaits throw the identical value.</p>
+<p><strong>Example</strong></p>
+<pre><code>broken: Promise.reject(&quot;missing token&quot;)
+// -&gt; &lt;promise rejected&gt;
+</code></pre>
+<h2 id="promise-promisethen">Promise.then</h2>
+<p><strong>Signature</strong> <code>Promise.then: (on-fulfilled, on-rejected, promise) -&gt; Promise&lt;result&gt;</code></p>
+<p><strong>Behavior</strong> Registers handlers that run when <code>promise</code> settles. <code>on-fulfilled</code> receives the fulfilled value, and <code>on-rejected</code> receives the error. Both handlers may return plain values or new promises; the returned value becomes the settlement of the resulting promise. To ignore rejections, pass <code>identity</code> from <a href="./core/identity.md">core/identity</a> or <code>_</code> to reuse the existing error.</p>
+<p><strong>Implementation Notes</strong> The interpreter curries the three parameters, so you can supply them one at a time (for example, <code>Promise.then(handler)</code> yields a function awaiting the rejection handler and the promise).</p>
+<p><strong>Example</strong></p>
+<pre><code>doubled: Promise.then(
+  (value) { value * 2 },
+  (error) { throw error },
+  Promise.resolve(21)
+)
+// -&gt; &lt;promise fulfilled&gt;
+</code></pre>
+<h2 id="promise-promiseall">Promise.all</h2>
+<p><strong>Signature</strong> <code>Promise.all: (promises) -&gt; Promise&lt;Array&lt;value&gt;&gt;</code></p>
+<p><strong>Behavior</strong> Takes an array of promises (or values) and returns a promise that fulfills with an array of fulfilled values in order. If any input rejects, the returned promise rejects with the first error and cancels the remaining subscriptions.</p>
+<p><strong>Implementation Notes</strong> Uses a reference-counted latch so partial application over the input array still keeps the builtin pure until execution.</p>
+<p><strong>Example</strong></p>
+<pre><code>load-both: Promise.all([async () { 1 }, async () { 2 }])
+// -&gt; &lt;promise pending&gt;
+</code></pre>
+<p>Note: Anonymous async functions use <code>async</code> before the lambda: <code>async () { ... }</code></p>
 
 </section>
 

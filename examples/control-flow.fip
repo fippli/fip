@@ -1,10 +1,13 @@
 log!("== Control Flow ==")
 
 log!(if(true, () { "true branch" }, () { "false branch" }))
+
 log!(if(false, () { "true branch" }, () { "false branch" }))
 
 maybe-value: 12345
+
 missing: null
 
 log!(if(defined?(maybe-value), () { maybe-value }, () { "No value" }))
+
 log!(if(defined?(missing), () { missing }, () { "No value" }))

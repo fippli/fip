@@ -1,4 +1,11 @@
-use std::{collections::HashSet, env, fs, path::PathBuf};
+use std::{
+    collections::HashSet,
+    env, fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
+
+use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
 
 use fippli_lang::ast::{
     BinaryOperator, Expression, Function, ObjectField, ObjectPatternField, Pattern, Program,
@@ -337,7 +344,14 @@ impl Linter {
             Expression::Binary { left, right, .. } => {
                 Self::find_impure_call(left.as_ref()) || Self::find_impure_call(right.as_ref())
             }
-            Expression::PropertyAccess { object, .. } => Self::find_impure_call(object.as_ref()),
+            Expression::PropertyAccess { object, property } => {
+                // Check if property name ends with '!' (impure method call)
+                if property.ends_with('!') {
+                    true
+                } else {
+                    Self::find_impure_call(object.as_ref())
+                }
+            }
             Expression::String(template) => template
                 .segments
                 .iter()
@@ -376,8 +390,17 @@ impl Linter {
             }
             Expression::Binary { left, right, .. } => Self::find_impure_call_name(left.as_ref())
                 .or_else(|| Self::find_impure_call_name(right.as_ref())),
-            Expression::PropertyAccess { object, .. } => {
-                Self::find_impure_call_name(object.as_ref())
+            Expression::PropertyAccess { object, property } => {
+                // Check if property name ends with '!' (impure method call)
+                if property.ends_with('!') {
+                    let obj_name = match object.as_ref() {
+                        Expression::Identifier(name) => name.clone(),
+                        _ => "<object>".to_string(),
+                    };
+                    Some(format!("{}.{}", obj_name, property))
+                } else {
+                    Self::find_impure_call_name(object.as_ref())
+                }
             }
             Expression::String(template) => template.segments.iter().find_map(|s| {
                 if let StringSegment::Expr(e) = s {
@@ -433,25 +456,67 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: fip-lint <file.fip>");
+        eprintln!("Usage: fip-lint <file.fip|directory>");
+        eprintln!("       fip-lint <file.fip>        Lint a single file");
+        eprintln!("       fip-lint <directory>        Lint all .fip files recursively");
         std::process::exit(1);
     }
 
-    let file_path = &args[1];
+    let path = PathBuf::from(&args[1]);
+
+    if !path.exists() {
+        eprintln!("Error: Path '{}' does not exist", path.display());
+        std::process::exit(1);
+    }
+
+    let has_errors = if path.is_dir() {
+        lint_directory(&path)
+    } else if path.is_file() {
+        let error_count = lint_file(&path);
+        error_count > 0
+    } else {
+        eprintln!(
+            "Error: Path '{}' is neither a file nor a directory",
+            path.display()
+        );
+        std::process::exit(1);
+    };
+
+    if has_errors {
+        std::process::exit(1);
+    }
+}
+
+fn lint_file(file_path: &Path) -> usize {
+    let file_path_str = file_path.to_string_lossy();
     let source = match fs::read_to_string(file_path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Error reading file: {}", e);
-            std::process::exit(1);
+            let error_msg = format!("Error reading file: {}", e);
+            let fake_error = vec![LintError {
+                line: 1,
+                column: 1,
+                message: error_msg,
+                severity: Severity::Error,
+            }];
+            print_file_status(&file_path_str, 1, &fake_error);
+            return 1;
         }
     };
 
-    let file_path_buf = PathBuf::from(file_path);
+    let file_path_buf = file_path.to_path_buf();
     let tokens = match Lexer::new(&source).lex() {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("Lexer error: {}", e);
-            std::process::exit(1);
+            let error_msg = format!("Lexer error: {}", e);
+            let fake_error = vec![LintError {
+                line: 1,
+                column: 1,
+                message: error_msg,
+                severity: Severity::Error,
+            }];
+            print_file_status(&file_path_str, 1, &fake_error);
+            return 1;
         }
     };
 
@@ -460,54 +525,93 @@ fn main() {
         Ok(p) => p,
         Err(e) => {
             // Extract location from parser error and format it properly
-            match &e {
+            let (line, msg) = match &e {
                 LangError::Parser(msg, location) => {
                     if let Some(loc) = location {
-                        println!("{}:{}:1: error: {}", file_path, loc.line, msg);
+                        (loc.line, msg.clone())
                     } else {
-                        println!("{}:1:1: error: {}", file_path, msg);
+                        (1, msg.clone())
                     }
                 }
                 LangError::Lexer(msg, location) => {
                     if let Some(loc) = location {
-                        println!("{}:{}:1: error: {}", file_path, loc.line, msg);
+                        (loc.line, msg.clone())
                     } else {
-                        println!("{}:1:1: error: {}", file_path, msg);
+                        (1, msg.clone())
                     }
                 }
-                _ => {
-                    eprintln!("Error: {}", e);
-                }
-            }
-            std::process::exit(1);
+                _ => (1, format!("{}", e)),
+            };
+            let fake_error = vec![LintError {
+                line,
+                column: 1,
+                message: msg,
+                severity: Severity::Error,
+            }];
+            print_file_status(&file_path_str, 1, &fake_error);
+            return 1;
         }
     };
 
     let mut linter = Linter::new(source);
     let errors = linter.lint(&program);
 
-    if errors.is_empty() {
-        println!("No linting errors found.");
-        std::process::exit(0);
-    }
+    let error_count = errors
+        .iter()
+        .filter(|e| e.severity == Severity::Error)
+        .count();
 
-    let mut has_errors = false;
-    for error in &errors {
-        let severity_str = match error.severity {
-            Severity::Error => "error",
-            Severity::Warning => "warning",
-            Severity::Info => "info",
-        };
-        println!(
-            "{}:{}:{}: {}: {}",
-            file_path, error.line, error.column, severity_str, error.message
-        );
-        if error.severity == Severity::Error {
-            has_errors = true;
+    print_file_status(&file_path_str, error_count, &errors);
+    error_count
+}
+
+fn print_file_status(file_path: &str, error_count: usize, errors: &[LintError]) {
+    let mut stdout = StandardStream::stdout(ColorChoice::Auto);
+
+    if error_count == 0 {
+        // Print green tick + "ok" before filename
+        let _ = stdout.set_color(ColorSpec::new().set_fg(Some(Color::Green)));
+        let _ = write!(stdout, "✓ ok ");
+        let _ = stdout.reset();
+        let _ = writeln!(stdout, "{}", file_path);
+    } else {
+        // Print red "!" + filename on new line
+        let _ = stdout.set_color(ColorSpec::new().set_fg(Some(Color::Red)));
+        let _ = write!(stdout, "! ");
+        let _ = stdout.reset();
+        let _ = writeln!(stdout, "{}", file_path);
+
+        // Print each error on its own line
+        for error in errors.iter().filter(|e| e.severity == Severity::Error) {
+            let _ = writeln!(stdout, "  row: {}: {}", error.line, error.message);
         }
     }
 
-    if has_errors {
-        std::process::exit(1);
+    let _ = stdout.reset();
+}
+
+fn lint_directory(dir_path: &Path) -> bool {
+    let mut has_errors = false;
+    let mut files_linted = 0;
+
+    for entry in walkdir::WalkDir::new(dir_path)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("fip") {
+            files_linted += 1;
+            let error_count = lint_file(path);
+            if error_count > 0 {
+                has_errors = true;
+            }
+        }
     }
+
+    if files_linted == 0 {
+        eprintln!("No .fip files found in {}", dir_path.display());
+        return false;
+    }
+
+    has_errors
 }

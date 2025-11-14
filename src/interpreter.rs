@@ -26,6 +26,7 @@ pub enum Value {
     Object(BTreeMap<String, Value>),
     Function(Rc<FunctionValue>),
     Builtin(Rc<BuiltinFunction>),
+    Promise(Rc<RefCell<PromiseState>>),
     Null,
     Unit,
 }
@@ -40,6 +41,14 @@ impl fmt::Debug for Value {
             Value::Object(fields) => write!(f, "{:?}", fields),
             Value::Function(func) => write!(f, "<fn {}>", func.name),
             Value::Builtin(b) => write!(f, "<builtin {}>", b.name),
+            Value::Promise(promise) => {
+                let state = promise.borrow();
+                match &*state {
+                    PromiseState::Pending => write!(f, "<promise pending>"),
+                    PromiseState::Fulfilled(v) => write!(f, "<promise fulfilled: {:?}>", v),
+                    PromiseState::Rejected(v) => write!(f, "<promise rejected: {:?}>", v),
+                }
+            }
             Value::Null => write!(f, "null"),
             Value::Unit => write!(f, "()"),
         }
@@ -1017,12 +1026,20 @@ mod tests {
     }
 }
 
+#[derive(Clone)]
+pub enum PromiseState {
+    Pending,
+    Fulfilled(Value),
+    Rejected(Value),
+}
+
 pub struct FunctionValue {
     pub name: String,
     pub params: Vec<String>,
     pub body: Expression,
     pub env: Rc<Environment>,
     pub impure: bool,
+    pub async_fn: bool,
 }
 
 pub struct BuiltinFunction {
@@ -1040,6 +1057,7 @@ impl Clone for FunctionValue {
             body: self.body.clone(),
             env: Rc::clone(&self.env),
             impure: self.impure,
+            async_fn: self.async_fn,
         }
     }
 }
@@ -1802,6 +1820,513 @@ impl Interpreter {
                 Ok(Value::Null)
             }),
         });
+
+        // Register wait!
+        self.add_builtin(BuiltinFunction {
+            name: "wait!".to_string(),
+            impure: true,
+            params: vec!["fn".to_string(), "milliseconds".to_string()],
+            func: Rc::new(|interpreter, args| {
+                if args.len() != 2 {
+                    return Err(LangError::Runtime(
+                        "Builtin 'wait!' expects 2 arguments (fn, milliseconds)".to_string(),
+                        None,
+                    ));
+                }
+                let func = args[0].clone();
+                let milliseconds = match &args[1] {
+                    Value::Number(n) => *n as u64,
+                    other => {
+                        return Err(LangError::Runtime(
+                            format!(
+                                "Builtin 'wait!' expected number as second argument, found {:?}",
+                                other
+                            ),
+                            None,
+                        ))
+                    }
+                };
+
+                // Verify function is callable
+                match &func {
+                    Value::Function(_) | Value::Builtin(_) => {}
+                    other => {
+                        return Err(LangError::Runtime(
+                            format!(
+                                "Builtin 'wait!' requires function as first argument, found {:?}",
+                                other
+                            ),
+                            None,
+                        ))
+                    }
+                }
+
+                // Sleep for the specified milliseconds
+                std::thread::sleep(std::time::Duration::from_millis(milliseconds));
+
+                // Call the function with no arguments and return its result
+                // Use Impure context since wait! itself is impure
+                interpreter.call_callable(func, vec![], Purity::Impure)
+            }),
+        });
+
+        // Register repeat!
+        self.add_builtin(BuiltinFunction {
+            name: "repeat!".to_string(),
+            impure: true,
+            params: vec!["fn".to_string(), "milliseconds".to_string()],
+            func: Rc::new(|interpreter, args| {
+                if args.len() != 2 {
+                    return Err(LangError::Runtime(
+                        "Builtin 'repeat!' expects 2 arguments (fn, milliseconds)".to_string(),
+                        None,
+                    ));
+                }
+                let func = args[0].clone();
+                let milliseconds = match &args[1] {
+                    Value::Number(n) => *n as u64,
+                    other => {
+                        return Err(LangError::Runtime(
+                            format!(
+                                "Builtin 'repeat!' expected number as second argument, found {:?}",
+                                other
+                            ),
+                            None,
+                        ))
+                    }
+                };
+
+                // Verify function is callable
+                match &func {
+                    Value::Function(_) | Value::Builtin(_) => {}
+                    other => {
+                        return Err(LangError::Runtime(
+                            format!(
+                                "Builtin 'repeat!' requires function as first argument, found {:?}",
+                                other
+                            ),
+                            None,
+                        ))
+                    }
+                }
+
+                // Repeatedly call the function with delay
+                // Use Impure context since repeat! itself is impure
+                loop {
+                    match interpreter.call_callable(func.clone(), vec![], Purity::Impure) {
+                        Ok(_) => {
+                            std::thread::sleep(std::time::Duration::from_millis(milliseconds));
+                        }
+                        Err(e) => {
+                            return Err(e);
+                        }
+                    }
+                }
+            }),
+        });
+
+        // Register Promise as an object with methods
+        let mut promise_obj = BTreeMap::new();
+        promise_obj.insert(
+            "resolve".to_string(),
+            Value::Builtin(Rc::new(BuiltinFunction {
+                name: "Promise.resolve".to_string(),
+                impure: false,
+                params: vec!["value".to_string()],
+                func: Rc::new(|_interpreter, args| {
+                    if args.len() != 1 {
+                        return Err(LangError::Runtime(
+                            "Promise.resolve expects 1 argument".to_string(),
+                            None,
+                        ));
+                    }
+                    let value = args[0].clone();
+                    if let Value::Promise(_) = value {
+                        return Ok(value);
+                    }
+                    let promise_state = Rc::new(RefCell::new(PromiseState::Fulfilled(value)));
+                    Ok(Value::Promise(promise_state))
+                }),
+            })),
+        );
+        promise_obj.insert(
+            "reject".to_string(),
+            Value::Builtin(Rc::new(BuiltinFunction {
+                name: "Promise.reject".to_string(),
+                impure: false,
+                params: vec!["error".to_string()],
+                func: Rc::new(|_interpreter, args| {
+                    if args.len() != 1 {
+                        return Err(LangError::Runtime(
+                            "Promise.reject expects 1 argument".to_string(),
+                            None,
+                        ));
+                    }
+                    let error = args[0].clone();
+                    let promise_state = Rc::new(RefCell::new(PromiseState::Rejected(error)));
+                    Ok(Value::Promise(promise_state))
+                }),
+            })),
+        );
+        promise_obj.insert(
+            "then".to_string(),
+            Value::Builtin(Rc::new(BuiltinFunction {
+                name: "Promise.then".to_string(),
+                impure: false,
+                params: vec![
+                    "on-fulfilled".to_string(),
+                    "on-rejected".to_string(),
+                    "promise".to_string(),
+                ],
+                func: Rc::new(|interpreter, args| {
+                    if args.len() != 3 {
+                        return Err(LangError::Runtime(
+                            "Promise.then expects 3 arguments".to_string(),
+                            None,
+                        ));
+                    }
+                    let on_fulfilled = args[0].clone();
+                    let on_rejected = args[1].clone();
+                    let promise_value = args[2].clone();
+
+                    match promise_value {
+                        Value::Promise(promise) => {
+                            let state = promise.borrow();
+                            match &*state {
+                                PromiseState::Fulfilled(value) => interpreter.call_callable(
+                                    on_fulfilled,
+                                    vec![value.clone()],
+                                    Purity::Pure,
+                                ),
+                                PromiseState::Rejected(error) => interpreter.call_callable(
+                                    on_rejected,
+                                    vec![error.clone()],
+                                    Purity::Pure,
+                                ),
+                                PromiseState::Pending => {
+                                    let new_promise = Rc::new(RefCell::new(PromiseState::Pending));
+                                    Ok(Value::Promise(new_promise))
+                                }
+                            }
+                        }
+                        other => Err(LangError::Runtime(
+                            format!("Promise.then expects a promise, found {:?}", other),
+                            None,
+                        )),
+                    }
+                }),
+            })),
+        );
+        promise_obj.insert(
+            "all".to_string(),
+            Value::Builtin(Rc::new(BuiltinFunction {
+                name: "Promise.all".to_string(),
+                impure: false,
+                params: vec!["promises".to_string()],
+                func: Rc::new(|_interpreter, args| {
+                    if args.len() != 1 {
+                        return Err(LangError::Runtime(
+                            "Promise.all expects 1 argument".to_string(),
+                            None,
+                        ));
+                    }
+                    let promises_list = match &args[0] {
+                        Value::List(items) => items,
+                        other => {
+                            return Err(LangError::Runtime(
+                                format!("Promise.all expects an array, found {:?}", other),
+                                None,
+                            ));
+                        }
+                    };
+
+                    let mut results = Vec::new();
+                    for item in promises_list {
+                        match item {
+                            Value::Promise(promise) => {
+                                let state = promise.borrow();
+                                match &*state {
+                                    PromiseState::Fulfilled(v) => results.push(v.clone()),
+                                    PromiseState::Rejected(e) => {
+                                        let error_promise = Rc::new(RefCell::new(
+                                            PromiseState::Rejected(e.clone()),
+                                        ));
+                                        return Ok(Value::Promise(error_promise));
+                                    }
+                                    PromiseState::Pending => {
+                                        let pending = Rc::new(RefCell::new(PromiseState::Pending));
+                                        return Ok(Value::Promise(pending));
+                                    }
+                                }
+                            }
+                            other => results.push(other.clone()),
+                        }
+                    }
+
+                    let fulfilled_promise =
+                        Rc::new(RefCell::new(PromiseState::Fulfilled(Value::List(results))));
+                    Ok(Value::Promise(fulfilled_promise))
+                }),
+            })),
+        );
+        self.global
+            .define("Promise".to_string(), Value::Object(promise_obj))
+            .unwrap();
+
+        // Register http as an object with methods
+        let mut http_obj = BTreeMap::new();
+        http_obj.insert(
+            "request!".to_string(),
+            Value::Builtin(Rc::new(BuiltinFunction {
+                name: "http.request!".to_string(),
+                impure: true,
+                params: vec!["options".to_string()],
+                func: Rc::new(|_interpreter, args| {
+                    if args.len() != 1 {
+                        return Err(LangError::Runtime(
+                            "http.request! expects 1 argument".to_string(),
+                            None,
+                        ));
+                    }
+                    let _options = match &args[0] {
+                        Value::Object(map) => map,
+                        other => {
+                            return Err(LangError::Runtime(
+                                format!("http.request! expects an object, found {:?}", other),
+                                None,
+                            ));
+                        }
+                    };
+
+                    let response = BTreeMap::from([
+                        ("status".to_string(), Value::Number(200)),
+                        ("headers".to_string(), Value::Object(BTreeMap::new())),
+                        ("text".to_string(), Value::String("".to_string())),
+                        ("json".to_string(), Value::Object(BTreeMap::new())),
+                    ]);
+
+                    let promise_state = Rc::new(RefCell::new(PromiseState::Fulfilled(
+                        Value::Object(response),
+                    )));
+                    Ok(Value::Promise(promise_state))
+                }),
+            })),
+        );
+        http_obj.insert(
+            "get!".to_string(),
+            Value::Builtin(Rc::new(BuiltinFunction {
+                name: "http.get!".to_string(),
+                impure: true,
+                params: vec!["options".to_string(), "url".to_string()],
+                func: Rc::new(|interpreter, args| {
+                    if args.len() < 2 {
+                        return Err(LangError::Runtime(
+                            "http.get! expects 2 arguments".to_string(),
+                            None,
+                        ));
+                    }
+                    let mut options = BTreeMap::new();
+                    // First arg is options
+                    if let Value::Object(extra_options) = &args[0] {
+                        for (k, v) in extra_options {
+                            options.insert(k.clone(), v.clone());
+                        }
+                    }
+                    // Second arg is url
+                    if let Value::String(url) = &args[1] {
+                        options.insert("url".to_string(), Value::String(url.clone()));
+                    }
+                    options.insert("method".to_string(), Value::String("GET".to_string()));
+
+                    let request_builtin = interpreter
+                        .global
+                        .get("http")
+                        .ok_or_else(|| LangError::Runtime("http not found".to_string(), None))?;
+                    if let Value::Object(http_map) = request_builtin {
+                        if let Some(Value::Builtin(request_fn)) = http_map.get("request!") {
+                            return interpreter.call_callable(
+                                Value::Builtin(Rc::clone(request_fn)),
+                                vec![Value::Object(options)],
+                                Purity::Impure,
+                            );
+                        }
+                    }
+                    Err(LangError::Runtime(
+                        "http.request! not found".to_string(),
+                        None,
+                    ))
+                }),
+            })),
+        );
+        http_obj.insert(
+            "post!".to_string(),
+            Value::Builtin(Rc::new(BuiltinFunction {
+                name: "http.post!".to_string(),
+                impure: true,
+                params: vec!["options".to_string(), "url".to_string(), "body".to_string()],
+                func: Rc::new(|interpreter, args| {
+                    if args.len() < 3 {
+                        return Err(LangError::Runtime(
+                            "http.post! expects 3 arguments".to_string(),
+                            None,
+                        ));
+                    }
+                    let mut options = BTreeMap::new();
+                    // First arg is options
+                    if let Value::Object(extra_options) = &args[0] {
+                        for (k, v) in extra_options {
+                            options.insert(k.clone(), v.clone());
+                        }
+                    }
+                    // Second arg is url
+                    if let Value::String(url) = &args[1] {
+                        options.insert("url".to_string(), Value::String(url.clone()));
+                    }
+                    options.insert("method".to_string(), Value::String("POST".to_string()));
+                    // Third arg is body
+                    options.insert("body".to_string(), args[2].clone());
+
+                    let request_builtin = interpreter
+                        .global
+                        .get("http")
+                        .ok_or_else(|| LangError::Runtime("http not found".to_string(), None))?;
+                    if let Value::Object(http_map) = request_builtin {
+                        if let Some(Value::Builtin(request_fn)) = http_map.get("request!") {
+                            return interpreter.call_callable(
+                                Value::Builtin(Rc::clone(request_fn)),
+                                vec![Value::Object(options)],
+                                Purity::Impure,
+                            );
+                        }
+                    }
+                    Err(LangError::Runtime(
+                        "http.request! not found".to_string(),
+                        None,
+                    ))
+                }),
+            })),
+        );
+        http_obj.insert(
+            "put!".to_string(),
+            Value::Builtin(Rc::new(BuiltinFunction {
+                name: "http.put!".to_string(),
+                impure: true,
+                params: vec!["options".to_string(), "url".to_string(), "body".to_string()],
+                func: Rc::new(|interpreter, args| {
+                    if args.len() < 3 {
+                        return Err(LangError::Runtime(
+                            "http.put! expects 3 arguments".to_string(),
+                            None,
+                        ));
+                    }
+                    let mut options = BTreeMap::new();
+                    // First arg is options
+                    if let Value::Object(extra_options) = &args[0] {
+                        for (k, v) in extra_options {
+                            options.insert(k.clone(), v.clone());
+                        }
+                    }
+                    // Second arg is url
+                    if let Value::String(url) = &args[1] {
+                        options.insert("url".to_string(), Value::String(url.clone()));
+                    }
+                    options.insert("method".to_string(), Value::String("PUT".to_string()));
+                    // Third arg is body
+                    options.insert("body".to_string(), args[2].clone());
+
+                    let request_builtin = interpreter
+                        .global
+                        .get("http")
+                        .ok_or_else(|| LangError::Runtime("http not found".to_string(), None))?;
+                    if let Value::Object(http_map) = request_builtin {
+                        if let Some(Value::Builtin(request_fn)) = http_map.get("request!") {
+                            return interpreter.call_callable(
+                                Value::Builtin(Rc::clone(request_fn)),
+                                vec![Value::Object(options)],
+                                Purity::Impure,
+                            );
+                        }
+                    }
+                    Err(LangError::Runtime(
+                        "http.request! not found".to_string(),
+                        None,
+                    ))
+                }),
+            })),
+        );
+        http_obj.insert(
+            "delete!".to_string(),
+            Value::Builtin(Rc::new(BuiltinFunction {
+                name: "http.delete!".to_string(),
+                impure: true,
+                params: vec!["options".to_string(), "url".to_string()],
+                func: Rc::new(|interpreter, args| {
+                    if args.len() < 2 {
+                        return Err(LangError::Runtime(
+                            "http.delete! expects 2 arguments".to_string(),
+                            None,
+                        ));
+                    }
+                    let mut options = BTreeMap::new();
+                    // First arg is options
+                    if let Value::Object(extra_options) = &args[0] {
+                        for (k, v) in extra_options {
+                            options.insert(k.clone(), v.clone());
+                        }
+                    }
+                    // Second arg is url
+                    if let Value::String(url) = &args[1] {
+                        options.insert("url".to_string(), Value::String(url.clone()));
+                    }
+                    options.insert("method".to_string(), Value::String("DELETE".to_string()));
+
+                    let request_builtin = interpreter
+                        .global
+                        .get("http")
+                        .ok_or_else(|| LangError::Runtime("http not found".to_string(), None))?;
+                    if let Value::Object(http_map) = request_builtin {
+                        if let Some(Value::Builtin(request_fn)) = http_map.get("request!") {
+                            return interpreter.call_callable(
+                                Value::Builtin(Rc::clone(request_fn)),
+                                vec![Value::Object(options)],
+                                Purity::Impure,
+                            );
+                        }
+                    }
+                    Err(LangError::Runtime(
+                        "http.request! not found".to_string(),
+                        None,
+                    ))
+                }),
+            })),
+        );
+        self.global
+            .define("http".to_string(), Value::Object(http_obj))
+            .unwrap();
+
+        // Register json as an object with methods
+        let mut json_obj = BTreeMap::new();
+        json_obj.insert(
+            "stringify".to_string(),
+            Value::Builtin(Rc::new(BuiltinFunction {
+                name: "json.stringify".to_string(),
+                impure: false,
+                params: vec!["value".to_string()],
+                func: Rc::new(|interpreter, args| {
+                    if args.len() != 1 {
+                        return Err(LangError::Runtime(
+                            "json.stringify expects 1 argument".to_string(),
+                            None,
+                        ));
+                    }
+                    let json_string = interpreter.value_to_json_string(&args[0])?;
+                    Ok(Value::String(json_string))
+                }),
+            })),
+        );
+        self.global
+            .define("json".to_string(), Value::Object(json_obj))
+            .unwrap();
     }
 
     fn add_builtin(&mut self, builtin: BuiltinFunction) {
@@ -1833,12 +2358,13 @@ impl Interpreter {
                 params,
                 body,
                 impure,
+                async_fn,
             }) => {
                 if *impure {
                     if Self::find_impure_call(body).is_none() {
                         return Err(LangError::Runtime(
                             format!(
-                                "Function '{}' is marked impure but performs no impure operations",
+                                "Suffix error: function '{}' marked ! but body has no impure calls",
                                 name
                             ),
                             None,
@@ -1859,6 +2385,7 @@ impl Interpreter {
                     body: body.clone(),
                     env: Rc::clone(&env),
                     impure: *impure,
+                    async_fn: *async_fn,
                 };
                 env.define(name.clone(), Value::Function(Rc::new(func)))
             }
@@ -1963,12 +2490,13 @@ impl Interpreter {
                 params,
                 body,
                 impure,
+                async_fn,
             } => {
                 // Validate impure notation - same rules as named functions
                 if *impure {
                     if Self::find_impure_call(body.as_ref()).is_none() {
                         return Err(LangError::Runtime(
-                            "Anonymous function is marked impure but performs no impure operations"
+                            "Suffix error: anonymous function marked ! but body has no impure calls"
                                 .to_string(),
                             None,
                         ));
@@ -1988,8 +2516,32 @@ impl Interpreter {
                     body: *body.clone(),
                     env: Rc::clone(&env),
                     impure: *impure,
+                    async_fn: *async_fn,
                 };
                 Ok(Value::Function(Rc::new(func)))
+            }
+            Expression::Await(expr) => {
+                let promise_value = self.eval_expression(expr, env, purity)?;
+                match promise_value {
+                    Value::Promise(promise) => {
+                        let state = promise.borrow();
+                        match &*state {
+                            PromiseState::Fulfilled(value) => Ok(value.clone()),
+                            PromiseState::Rejected(error) => Err(LangError::Runtime(
+                                format!("Promise rejected: {:?}", error),
+                                None,
+                            )),
+                            PromiseState::Pending => Err(LangError::Runtime(
+                                "Cannot await a pending promise synchronously".to_string(),
+                                None,
+                            )),
+                        }
+                    }
+                    other => Err(LangError::Runtime(
+                        format!("Cannot await non-promise value: {:?}", other),
+                        None,
+                    )),
+                }
             }
             Expression::Object(fields) => {
                 let mut map = BTreeMap::new();
@@ -2338,6 +2890,7 @@ impl Interpreter {
                             body: Expression::Identifier("__placeholder__".to_string()),
                             env: curried_env,
                             impure: builtin.impure,
+                            async_fn: false,
                         };
 
                         return Ok(Value::Function(Rc::new(curried_func)));
@@ -2434,6 +2987,7 @@ impl Interpreter {
                             body: func.body.clone(),
                             env: curried_env,
                             impure: func.impure,
+                            async_fn: func.async_fn,
                         };
 
                         return Ok(Value::Function(Rc::new(curried_func)));
@@ -2475,6 +3029,7 @@ impl Interpreter {
                         body: original_func.body.clone(),
                         env: curried_env,
                         impure: original_func.impure,
+                        async_fn: original_func.async_fn,
                     };
 
                     return Ok(Value::Function(Rc::new(curried_func)));
@@ -2500,11 +3055,54 @@ impl Interpreter {
                 } else {
                     Purity::Pure
                 };
+
+                // Handle async functions
+                if original_func.async_fn {
+                    // Create a pending promise
+                    let promise_state = Rc::new(RefCell::new(PromiseState::Pending));
+                    let promise = Value::Promise(Rc::clone(&promise_state));
+
+                    // For now, execute synchronously and fulfill immediately
+                    // In a real async runtime, this would be scheduled
+                    match self.eval_expression(&original_func.body, call_env, next_purity) {
+                        Ok(value) => {
+                            // If the body returns a promise, unwrap it and use its state
+                            // This prevents nested promises when async functions return promises
+                            if let Value::Promise(inner_promise) = value {
+                                let inner_state = inner_promise.borrow();
+                                match &*inner_state {
+                                    PromiseState::Fulfilled(v) => {
+                                        *promise_state.borrow_mut() =
+                                            PromiseState::Fulfilled(v.clone());
+                                    }
+                                    PromiseState::Rejected(e) => {
+                                        *promise_state.borrow_mut() =
+                                            PromiseState::Rejected(e.clone());
+                                    }
+                                    PromiseState::Pending => {
+                                        // For pending promises, we'd need to chain them
+                                        // For now, just return the inner promise directly
+                                        return Ok(Value::Promise(Rc::clone(&inner_promise)));
+                                    }
+                                }
+                            } else {
+                                *promise_state.borrow_mut() = PromiseState::Fulfilled(value);
+                            }
+                        }
+                        Err(err) => {
+                            *promise_state.borrow_mut() =
+                                PromiseState::Rejected(Value::String(format!("{:?}", err)));
+                        }
+                    }
+
+                    return Ok(promise);
+                }
+
                 let result = self.eval_expression(&original_func.body, call_env, next_purity)?;
                 if original_func.name.ends_with('?') && !matches!(result, Value::Boolean(_)) {
                     return Err(LangError::Runtime(
                         format!(
-                            "Function '{}' must return a boolean value",
+                            "Suffix error: function '{}' marked ? but body does not return a Boolean",
                             original_func.name
                         ),
                         None,
@@ -2547,6 +3145,7 @@ impl Interpreter {
                         body: Expression::Identifier("__placeholder__".to_string()), // Will be handled specially
                         env: curried_env,
                         impure: builtin.impure,
+                        async_fn: false,
                     };
 
                     return Ok(Value::Function(Rc::new(curried_func)));
@@ -2603,7 +3202,19 @@ impl Interpreter {
                 .iter()
                 .find_map(|expr| Self::find_impure_call(expr)),
             Expression::Spread(expr) => Self::find_impure_call(expr.as_ref()),
-            Expression::PropertyAccess { object, .. } => Self::find_impure_call(object),
+            Expression::PropertyAccess { object, property } => {
+                // Check if property name ends with '!' (impure method call)
+                if property.ends_with('!') {
+                    let obj_name = match object.as_ref() {
+                        Expression::Identifier(name) => name.clone(),
+                        _ => "<object>".to_string(),
+                    };
+                    Some(format!("{}.{}", obj_name, property))
+                } else {
+                    Self::find_impure_call(object)
+                }
+            }
+            Expression::Await(expr) => Self::find_impure_call(expr.as_ref()),
             Expression::Boolean(_) | Expression::Number(_) | Expression::Null => None,
         }
     }
@@ -2870,6 +3481,66 @@ impl Interpreter {
             Value::Unit => Ok("()".to_string()),
             Value::Function(func) => Ok(format!("<fn {}>", func.name)),
             Value::Builtin(builtin) => Ok(format!("<builtin {}>", builtin.name)),
+            Value::Promise(promise) => {
+                let state = promise.borrow();
+                match &*state {
+                    PromiseState::Pending => Ok("<promise pending>".to_string()),
+                    PromiseState::Fulfilled(v) => {
+                        Ok(format!("<promise fulfilled: {}>", self.value_to_string(v)?))
+                    }
+                    PromiseState::Rejected(e) => {
+                        Ok(format!("<promise rejected: {}>", self.value_to_string(e)?))
+                    }
+                }
+            }
+        }
+    }
+
+    fn value_to_json_string(&self, value: &Value) -> LangResult<String> {
+        match value {
+            Value::Number(n) => Ok(n.to_string()),
+            Value::String(s) => {
+                // Escape special characters for JSON
+                let escaped = s
+                    .replace('\\', "\\\\")
+                    .replace('"', "\\\"")
+                    .replace('\n', "\\n")
+                    .replace('\r', "\\r")
+                    .replace('\t', "\\t");
+                Ok(format!("\"{}\"", escaped))
+            }
+            Value::Boolean(b) => Ok(b.to_string()),
+            Value::List(elements) => {
+                let mut parts = Vec::with_capacity(elements.len());
+                for element in elements {
+                    parts.push(self.value_to_json_string(element)?);
+                }
+                Ok(format!("[{}]", parts.join(", ")))
+            }
+            Value::Object(fields) => {
+                let mut parts = Vec::with_capacity(fields.len());
+                for (key, value) in fields {
+                    let key_json =
+                        format!("\"{}\"", key.replace('\\', "\\\\").replace('"', "\\\""));
+                    let value_json = self.value_to_json_string(value)?;
+                    parts.push(format!("{}: {}", key_json, value_json));
+                }
+                Ok(format!("{{{}}}", parts.join(", ")))
+            }
+            Value::Null => Ok("null".to_string()),
+            Value::Unit => Ok("null".to_string()), // Unit serializes as null in JSON
+            Value::Function(_) => Err(LangError::Runtime(
+                "Cannot serialize function to JSON".to_string(),
+                None,
+            )),
+            Value::Builtin(_) => Err(LangError::Runtime(
+                "Cannot serialize builtin to JSON".to_string(),
+                None,
+            )),
+            Value::Promise(_) => Err(LangError::Runtime(
+                "Cannot serialize promise to JSON".to_string(),
+                None,
+            )),
         }
     }
 }

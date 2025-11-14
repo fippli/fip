@@ -31,6 +31,7 @@ pub struct Function {
     pub params: Vec<String>,
     pub body: Expression,
     pub impure: bool,
+    pub async_fn: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -45,7 +46,9 @@ pub enum Expression {
         params: Vec<String>,
         body: Box<Expression>,
         impure: bool,
+        async_fn: bool,
     },
+    Await(Box<Expression>),
     Object(Vec<ObjectField>),
     List(Vec<Expression>),
     Call {

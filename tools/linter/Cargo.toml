@@ -9,3 +9,5 @@ path = "src/main.rs"
 
 [dependencies]
 fippli_lang = { path = "../.." }
+walkdir = "2"
+termcolor = "1.4"

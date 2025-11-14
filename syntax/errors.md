@@ -51,3 +51,22 @@ count: 3
 count: count + 1
 // -> Mutation error: trying to mutate binding count
 ```
+
+## Runtime error
+
+**Signature** `Runtime error: <explanation>`
+
+**Behavior** Raised for general runtime errors that do not fall into the specific categories above. This includes errors from builtin functions, undefined identifiers, type mismatches in function calls, and other runtime failures. When location information is available, the error message includes the filename and line number where the error occurred.
+
+**Example**
+
+```fip
+undefined-value
+// -> Runtime error: Undefined identifier 'undefined-value'
+//    File: example.fip line 1
+
+invalid-call: (x) { x }
+invalid-call(1, 2, 3)
+// -> Runtime error: Function 'invalid-call' expects 1 argument, got 3
+//    File: example.fip line 2
+```

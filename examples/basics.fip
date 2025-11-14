@@ -1,11 +1,28 @@
 log!("== Basics ==")
 
 name: "Filip"
+
 greeting: "Hello, <name>!"
+
 lucky-number: 42
 
 log!(name)
+
 log!(greeting)
+
 log!(lucky-number)
+
 log!(1 = 1)
+
 log!(1 ≠ 2)
+
+
+message: wait!(() { "delayed message" }, 1000)
+
+log!(message)
+
+repeat!(
+  ()! { 
+    log!("repeated") 
+  }, 1000
+)

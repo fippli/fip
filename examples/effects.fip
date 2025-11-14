@@ -3,6 +3,20 @@ log!("== Effects ==")
 trace!("starting", 1)
 
 values: ["a", "b", "c"]
+
 for-each!((value)! { log!(value) }, values)
 
 trace!("done", values)
+
+log!("Waiting 500ms with pure function...")
+result: wait!(() { 42 }, 500)
+log!(result)
+
+log!("Waiting 500ms with impure function...")
+wait!(()! { log!("Delayed message") }, 500)
+
+log!("Starting repeat with pure function (will run until interrupted)...")
+repeat!(() { 42 }, 1000)
+
+log!("Starting repeat with impure function (will run until interrupted)...")
+repeat!(()! { log!("tick") }, 1000)

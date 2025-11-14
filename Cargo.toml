@@ -9,3 +9,4 @@ name = "fip"
 path = "src/cli.rs"
 
 [dependencies]
+walkdir = "2"
